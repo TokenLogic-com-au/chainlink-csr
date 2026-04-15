@@ -16,12 +16,11 @@ contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
      */
     constructor(
         address token,
-        address wnative,
-        address linkToken,
+        address ghoToken,
         address ccipRouter,
         address oraclePool,
         address initialAdmin
-    ) CustomSender(token, wnative, linkToken, ccipRouter, oraclePool, initialAdmin) {}
+    ) CustomSender(token, ghoToken, ccipRouter, oraclePool, initialAdmin) {}
 
     /**
      * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
@@ -36,12 +35,12 @@ contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
      *
      * Emits a {FastStake} and {Referral} event.
      */
-    function fastStakeReferral(address token, uint256 amount, uint256 minAmountOut, address referral)
-        public
-        payable
-        override
-        returns (uint256 amountOut)
-    {
+    function fastStakeReferral(
+        address token,
+        uint256 amount,
+        uint256 minAmountOut,
+        address referral
+    ) public override returns (uint256 amountOut) {
         amountOut = CustomSender.fastStake(token, amount, minAmountOut);
         emit Referral(msg.sender, referral, amountOut);
     }
