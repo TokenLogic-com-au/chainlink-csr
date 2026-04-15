@@ -25,11 +25,12 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     using SafeERC20 for IERC20;
 
     /* The minimum gas to process the message. */
-    uint32 public constant override MIN_PROCESS_MESSAGE_GAS = 75_000;
+    uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
 
-    bytes32 public constant override SYNC_ROLE = keccak256("SYNC_ROLE");
+    bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
 
-    address public immutable override TOKEN;
+    address public immutable GHO;
+    address public immutable SGHO;
 
     /* @custom:storage-location erc7201:ccip-csr.storage.CustomSender */
     struct CustomSenderStorage {
@@ -56,15 +57,18 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * the oracle pool and the admin role.
      */
     constructor(
-        address token,
+        address sghoToken,
         address ghoToken,
         address ccipRouter,
         address oraclePool,
         address initialAdmin
     ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
-        if (token == address(0)) revert CustomSenderInvalidParameters();
+        if (sghoToken == address(0) || ghoToken == address(0)) {
+            revert CustomSenderInvalidParameters();
+        }
 
-        TOKEN = token;
+        GHO = ghoToken;
+        SGHO = sghoToken;
 
         initialize(oraclePool, initialAdmin);
     }
@@ -84,10 +88,102 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Returns the address of the oracle pool.
+     * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
+     * The user sends (W)Native to this contract, the oracle pool swaps the (W)Native for the native staked token,
+     * and sends the native staked token back to the user.
+     *
+     * Requirements:
+     *
+     * - The amount sent must be greater than 0.
+     * - The token sent must be the wrapped native token or native token.
+     *
+     * Emits a {Deposit} event.
      */
-    function getOraclePool() public view override returns (address) {
-        return _getCustomSenderStorage().oraclePool;
+    function deposit(
+        uint256 amount,
+        uint256 minAmountOut
+    ) public virtual returns (uint256) {
+        if (amount == 0) revert CustomSenderZeroAmount();
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+
+        _pullFrom(GHO, msg.sender, amount);
+
+        IERC20(GHO).forceApprove(oraclePool, amount);
+
+        uint256 amountOut = IOraclePool(oraclePool).deposit(
+            msg.sender,
+            amount,
+            minAmountOut
+        );
+
+        emit Deposit(msg.sender, GHO, amount, amountOut);
+
+        return amountOut;
+    }
+
+    function redeem(
+        uint256 amount,
+        uint256 minAmountOut
+    ) public virtual returns (uint256) {
+        if (amount == 0) revert CustomSenderZeroAmount();
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+
+        _pullFrom(SGHO, msg.sender, amount);
+
+        IERC20(SGHO).forceApprove(oraclePool, amount);
+
+        uint256 amountOut = IOraclePool(oraclePool).redeem(
+            msg.sender,
+            amount,
+            minAmountOut
+        );
+
+        emit Redeem(msg.sender, SGHO, amount, amountOut);
+
+        return amountOut;
+    }
+
+    /**
+     * @dev Allows the operator to synchronize this chain by sending the native tokens to the receiver contract on the main chain,
+     * mint the native staked token and send it back to the oracle pool on this chain.
+     * The operator has to pay the gas fee for the CCIP message and for the way back.
+     * It is very important that the `feeOtoD` is sufficient to cover the gas fee for the way back, or the tokens may
+     * get stuck depending on the bridge used for the way back.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `SYNC_ROLE`.
+     *
+     * Emits a {Sync} event.
+     */
+    function sync(
+        uint64 destChainSelector,
+        address token,
+        uint256 amount,
+        bytes calldata feeOtoD
+    ) external virtual onlyRole(SYNC_ROLE) returns (bytes32) {
+        if (amount == 0) revert CustomSenderZeroAmount();
+        if (token != GHO && token != SGHO) revert CustomSenderInvalidToken();
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+
+        IOraclePool(oraclePool).pull(token, amount);
+
+        bytes32 messageId = _buildAndSendSync(
+            destChainSelector,
+            token,
+            amount,
+            feeOtoD
+        );
+
+        emit Sync(msg.sender, destChainSelector, messageId, token, amount);
+
+        return messageId;
     }
 
     /**
@@ -106,93 +202,35 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         _setOraclePool(oraclePool);
     }
 
-    /**
-     * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
-     * The user sends (W)Native to this contract, the oracle pool swaps the (W)Native for the native staked token,
-     * and sends the native staked token back to the user.
-     *
-     * Requirements:
-     *
-     * - The amount sent must be greater than 0.
-     * - The token sent must be the wrapped native token or native token.
-     *
-     * Emits a {FastStake} event.
-     */
-    function fastStake(
-        address token,
-        uint256 amount,
-        uint256 minAmountOut
-    ) public virtual returns (uint256 amountOut) {
-        if (amount == 0) revert CustomSenderZeroAmount();
-        if (token != TOKEN) revert CustomSenderInvalidToken();
-
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
-
-        _pullFrom(token, msg.sender, amount);
-
-        IERC20(TOKEN).forceApprove(oraclePool, amount);
-
-        amountOut = IOraclePool(oraclePool).swap(
-            msg.sender,
-            amount,
-            minAmountOut
-        );
-
-        emit FastStake(msg.sender, token, amount, amountOut);
+    function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getCustomSenderStorage().vault = vault;
+        emit VaultSet(vault);
     }
 
     /**
-     * @dev Allows the operator to synchronize this chain by sending the native tokens to the receiver contract on the main chain,
-     * mint the native staked token and send it back to the oracle pool on this chain.
-     * The operator has to pay the gas fee for the CCIP message and for the way back.
-     * It is very important that the `feeOtoD` is sufficient to cover the gas fee for the way back, or the tokens may
-     * get stuck depending on the bridge used for the way back.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `SYNC_ROLE`.
-     *
-     * Emits a {Sync} event.
+     * @dev Returns the address of the oracle pool.
      */
-    function sync(
-        uint64 destChainSelector,
-        uint256 amount,
-        bytes calldata feeOtoD
-    ) external virtual onlyRole(SYNC_ROLE) returns (bytes32 messageId) {
-        if (amount == 0) revert CustomSenderZeroAmount();
-
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
-
-        IOraclePool(oraclePool).pull(TOKEN, amount);
-
-        messageId = _buildAndSendSync(destChainSelector, amount, feeOtoD);
-
-        emit Sync(msg.sender, destChainSelector, messageId, amount);
+    function getOraclePool() public view returns (address) {
+        return _getCustomSenderStorage().oraclePool;
     }
 
     function getVault() public view returns (address) {
         return _getCustomSenderStorage().vault;
     }
 
-    function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _getCustomSenderStorage().vault = vault;
-        emit VaultSet(vault);
-    }
-
     function _buildAndSendSync(
         uint64 destChainSelector,
+        address token,
         uint256 amount,
         bytes calldata feeOtoD
-    ) internal virtual returns (bytes32 messageId) {
+    ) internal virtual returns (bytes32) {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
 
         Client.EVMTokenAmount[]
             memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: TOKEN, amount: amount});
+        tokenAmounts[0] = Client.EVMTokenAmount({token: token, amount: amount});
 
-        bytes memory data = abi.encode($.vault, $.oraclePool, $.minimumOut);
+        bytes memory data = abi.encode($.vault, $.oraclePool);
 
         (uint256 maxFee, bool payInGho, uint256 gasLimit) = FeeCodec.decodeCCIP(
             feeOtoD
@@ -201,14 +239,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         if (gasLimit < MIN_PROCESS_MESSAGE_GAS)
             revert CustomSenderInsufficientGas();
 
-        messageId = _ccipSend(
-            destChainSelector,
-            tokenAmounts,
-            payInGho,
-            maxFee,
-            gasLimit,
-            data
-        );
+        return
+            _ccipSend(
+                destChainSelector,
+                tokenAmounts,
+                payInGho,
+                maxFee,
+                gasLimit,
+                data
+            );
     }
 
     /**
