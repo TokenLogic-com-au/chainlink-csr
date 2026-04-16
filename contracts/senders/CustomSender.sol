@@ -36,6 +36,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     struct CustomSenderStorage {
         address oraclePool;
         address vault;
+        address supplyOracle;
     }
 
     // keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.CustomSender")) - 1)) & ~bytes32(uint256(0xff))
@@ -169,10 +170,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         if (amount == 0) revert CustomSenderZeroAmount();
         if (token != GHO && token != SGHO) revert CustomSenderInvalidToken();
 
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+        CustomSenderStorage storage $ = _getCustomSenderStorage();
 
-        IOraclePool(oraclePool).pull(token, amount);
+        if ($.oraclePool == address(0) || $.supplyOracle == address(0)) {
+            revert CustomSenderOraclePoolNotSet();
+        }
+
+        // if (ISupplyOracle($.supplyOracle).capacityReached()) revert MaxSupplyReached();
+
+        IOraclePool($.oraclePool).pull(token, amount);
 
         bytes32 messageId = _buildAndSendSync(
             destChainSelector,
@@ -202,6 +208,13 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         _setOraclePool(oraclePool);
     }
 
+    function setSupplyOracle(
+        address oracle
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getCustomSenderStorage().supplyOracle = oracle;
+        emit SupplyOracleSet(oracle);
+    }
+
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _getCustomSenderStorage().vault = vault;
         emit VaultSet(vault);
@@ -212,6 +225,10 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      */
     function getOraclePool() public view returns (address) {
         return _getCustomSenderStorage().oraclePool;
+    }
+
+    function getSupplyOracle() public view returns (address) {
+        return _getCustomSenderStorage().supplyOracle;
     }
 
     function getVault() public view returns (address) {

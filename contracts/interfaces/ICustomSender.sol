@@ -30,6 +30,7 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         address token,
         uint256 amount
     );
+    event SupplyOracleSet(address oracle);
     event VaultSet(address vault);
 
     function deposit(
@@ -49,9 +50,11 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         bytes calldata feeOtoD
     ) external returns (bytes32);
 
-    function setVault(address vault) external;
-
     function setOraclePool(address oraclePool) external;
+
+    function setSupplyOracle(address oracle) external;
+
+    function setVault(address vault) external;
 
     function GHO() external view returns (address);
 
@@ -62,6 +65,8 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     function MIN_PROCESS_MESSAGE_GAS() external view returns (uint32);
 
     function getOraclePool() external view returns (address);
+
+    function getSupplyOracle() external view returns (address);
 
     function getVault() external view returns (address);
 }
