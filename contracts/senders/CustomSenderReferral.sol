@@ -35,13 +35,12 @@ contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
      *
      * Emits a {FastStake} and {Referral} event.
      */
-    function fastStakeReferral(
-        address token,
+    function depositReferral(
         uint256 amount,
         uint256 minAmountOut,
         address referral
     ) public override returns (uint256 amountOut) {
-        amountOut = CustomSender.fastStake(token, amount, minAmountOut);
+        amountOut = CustomSender.deposit(amount, minAmountOut);
         emit Referral(msg.sender, referral, amountOut);
     }
 }

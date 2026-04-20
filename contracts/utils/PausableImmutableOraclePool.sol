@@ -26,10 +26,16 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      * The `fee` is the fee to be applied to each swap (in 1e18 scale). It cannot be changed after deployment.
      * The `initialOwner` is the address of the initial owner.
      */
-    constructor(address sender, address tokenIn, address tokenOut, address oracle, uint96 fee, address initialOwner)
-        OraclePool(sender, tokenIn, tokenOut, oracle, fee, initialOwner)
-    {
-        if (oracle == address(0)) revert PausableImmutableOraclePoolInvalidParameters();
+    constructor(
+        address sender,
+        address tokenIn,
+        address tokenOut,
+        address oracle,
+        uint96 fee,
+        address initialOwner
+    ) OraclePool(sender, tokenIn, tokenOut, oracle, fee, initialOwner) {
+        if (oracle == address(0))
+            revert PausableImmutableOraclePoolInvalidParameters();
     }
 
     /**
@@ -87,12 +93,11 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      *
      * Emits a {Sweep} event.
      */
-    function swap(address recipient, uint256 amountIn, uint256 minAmountOut)
-        public
-        override
-        whenNotPaused
-        returns (uint256)
-    {
-        return super.swap(recipient, amountIn, minAmountOut);
+    function deposit(
+        address recipient,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) public override whenNotPaused returns (uint256) {
+        return super.deposit(recipient, amountIn, minAmountOut);
     }
 }

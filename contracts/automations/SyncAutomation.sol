@@ -22,7 +22,7 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
 
     address public immutable SENDER;
     uint64 public immutable DEST_CHAIN_SELECTOR;
-    address public immutable WNATIVE;
+    address public immutable SGHO;
 
     address private _forwarder;
     uint48 private _lastExecution;
@@ -32,7 +32,6 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
     uint128 private _maxAmount;
 
     bytes private _feeOtoD;
-    bytes private _feeDtoO;
 
     /**
      * @dev Modifier to check that the caller is the forwarder.
@@ -55,19 +54,26 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      * Approves the maximum amount of LINK tokens to the {SENDER} contract to allow the payment of link fees for the
      * CCIP messages.
      */
-    constructor(address sender, uint64 destChainSelector, address initialOwner) Ownable(initialOwner) {
+    constructor(
+        address sender,
+        uint64 destChainSelector,
+        address initialOwner
+    ) Ownable(initialOwner) {
         if (sender == address(0) || destChainSelector == 0) {
             revert SyncAutomationInvalidParameters();
         }
 
         SENDER = sender;
         DEST_CHAIN_SELECTOR = destChainSelector;
-        WNATIVE = ICustomSender(sender).WNATIVE();
+        SGHO = ICustomSender(sender).SGHO();
 
         _lastExecution = uint48(block.timestamp);
         _delay = type(uint48).max; // Deactivated by default
 
-        IERC20(ICustomSender(sender).LINK_TOKEN()).forceApprove(sender, type(uint256).max);
+        IERC20(ICustomSender(sender).GHO()).forceApprove(
+            sender,
+            type(uint256).max
+        );
     }
 
     /**
@@ -106,13 +112,6 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
     }
 
     /**
-     * @dev Returns the fee for the cross-chain message from the destination to the origin chain.
-     */
-    function getFeeDtoO() public view virtual returns (bytes memory) {
-        return _feeDtoO;
-    }
-
-    /**
      * @dev Returns the amount of native tokens that can be synced.
      */
     function getAmountToSync() public view virtual returns (uint256) {
@@ -122,16 +121,18 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
     /**
      * @dev Returns the max fee used to sync the native tokens to the destination chain, and back to the origin chain.
      */
-    function getMaxFees() public view virtual returns (uint256 maxNativeFee, uint256 maxLinkFee) {
-        (uint256 maxFeeOtoD, bool payInLinkOtoD) = FeeCodec.decodeFeeMemory(_feeOtoD);
+    function getMaxFees() public view virtual returns (uint256, uint256) {
+        uint256 maxNativeFee;
+        uint256 maxGhoFee;
 
-        if (payInLinkOtoD) maxLinkFee = maxFeeOtoD;
-        else maxNativeFee = maxFeeOtoD;
-
-        (uint256 maxFeeDtoO, bool payInLinkDtoO) = FeeCodec.decodeFeeMemory(_feeDtoO);
-
-        if (payInLinkDtoO) maxLinkFee += maxFeeDtoO;
-        else maxNativeFee += maxFeeDtoO;
+        (uint256 maxFeeOtoD, bool payInGhoOtoD) = FeeCodec.decodeFeeMemory(
+            _feeOtoD
+        );
+        if (payInGhoOtoD) {
+            maxGhoFee = maxFeeOtoD;
+        } else {
+            maxNativeFee = maxFeeOtoD;
+        }
     }
 
     /**
@@ -139,7 +140,9 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      * If the amount of native tokens in the oracle pool is greater than `minAmount` and the delay has passed,
      * the upkeep is needed.
      */
-    function checkUpkeep(bytes calldata checkData)
+    function checkUpkeep(
+        bytes calldata checkData
+    )
         public
         virtual
         override
@@ -159,21 +162,21 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      * - The caller must be the forwarder.
      * - The amount of native tokens in the oracle pool must be greater than `minAmount` (i.e. the upkeep is needed).
      */
-    function performUpkeep(bytes calldata /* performData */ ) public virtual override onlyForwarder {
+    function performUpkeep(
+        bytes calldata performData
+    ) public virtual override onlyForwarder {
         uint256 amount = _getAmountToSync();
-
         if (amount == 0) revert SyncAutomationNoUpkeepNeeded();
 
         _lastExecution = uint48(block.timestamp);
 
         bytes memory feeOtoD = _feeOtoD;
-        bytes memory feeDtoO = _feeDtoO;
+        (uint256 maxFeeOtoD, bool payInGhoOtoD) = FeeCodec.decodeFeeMemory(
+            feeOtoD
+        );
 
-        (uint256 maxFeeOtoD, bool payInLinkOtoD) = FeeCodec.decodeFeeMemory(feeOtoD);
-        (uint256 feeAmountDtoO, bool payInLinkDtoO) = FeeCodec.decodeFeeMemory(feeDtoO);
-
-        uint256 nativeAmount = (payInLinkDtoO ? 0 : feeAmountDtoO) + (payInLinkOtoD ? 0 : maxFeeOtoD);
-        ICustomSender(SENDER).sync{value: nativeAmount}(DEST_CHAIN_SELECTOR, amount, feeOtoD, feeDtoO);
+        address token = abi.decode(performData, (address));
+        ICustomSender(SENDER).sync(DEST_CHAIN_SELECTOR, token, amount, feeOtoD);
     }
 
     /**
@@ -203,7 +206,10 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      *
      * Emits a {AmountsSet} event.
      */
-    function setAmounts(uint128 minAmount, uint128 maxAmount) public virtual onlyOwner {
+    function setAmounts(
+        uint128 minAmount,
+        uint128 maxAmount
+    ) public virtual onlyOwner {
         _setAmounts(minAmount, maxAmount);
     }
 
@@ -218,23 +224,16 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
     }
 
     /**
-     * @dev Sets the fee for the cross-chain message from the destination to the origin chain.
-     * The fee will only be checked on the destination chain, which won't revert on the source chain if the fee is insufficient.
-     * It is therefore very important to set the fee correctly to avoid any issues, preferably higher than the expected fee.
-     *
-     * Emits a {FeeDtoOSet} event.
-     */
-    function setFeeDtoO(bytes calldata fee) public virtual onlyOwner {
-        _setFeeDtoO(fee);
-    }
-
-    /**
      * @dev Transfers `amount` of `token` to `recipient`.
      *
      * Requirements:
      * - `msg.sender` must be the owner.
      */
-    function sweep(address token, address recipient, uint256 amount) public virtual onlyOwner {
+    function sweep(
+        address token,
+        address recipient,
+        uint256 amount
+    ) public virtual onlyOwner {
         TokenHelper.transfer(token, recipient, amount);
     }
 
@@ -243,7 +242,9 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      * If the amount of native tokens in the oracle pool is greater than `minAmount` and the delay has passed,
      * the upkeep is needed.
      */
-    function _checkUpKeep(bytes calldata /* checkData */ )
+    function _checkUpKeep(
+        bytes calldata /* checkData */
+    )
         internal
         view
         virtual
@@ -260,11 +261,11 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
     function _getAmountToSync() internal view virtual returns (uint256 amount) {
         if (block.timestamp >= _lastExecution + _delay) {
             address oraclePool = ICustomSender(SENDER).getOraclePool();
-            uint256 wnativeAmount = IERC20(WNATIVE).balanceOf(oraclePool);
+            uint256 sghoAmount = IERC20(SGHO).balanceOf(oraclePool);
 
-            if (wnativeAmount >= _minAmount) {
+            if (sghoAmount >= _minAmount) {
                 uint256 maxAmount = _maxAmount;
-                amount = wnativeAmount > maxAmount ? maxAmount : wnativeAmount;
+                amount = sghoAmount > maxAmount ? maxAmount : sghoAmount;
             }
         }
     }
@@ -296,8 +297,12 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
      *
      * Emits a {AmountsSet} event.
      */
-    function _setAmounts(uint128 minAmount, uint128 maxAmount) internal virtual {
-        if (minAmount == 0 || minAmount > maxAmount) revert SyncAutomationInvalidAmounts(minAmount, maxAmount);
+    function _setAmounts(
+        uint128 minAmount,
+        uint128 maxAmount
+    ) internal virtual {
+        if (minAmount == 0 || minAmount > maxAmount)
+            revert SyncAutomationInvalidAmounts(minAmount, maxAmount);
 
         _minAmount = minAmount;
         _maxAmount = maxAmount;
@@ -314,16 +319,5 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
         _feeOtoD = fee;
 
         emit FeeOtoDSet(fee);
-    }
-
-    /**
-     * @dev Sets the fee for the cross-chain message from the destination to the origin chain.
-     *
-     * Emits a {FeeDtoOSet} event.
-     */
-    function _setFeeDtoO(bytes calldata fee) internal virtual {
-        _feeDtoO = fee;
-
-        emit FeeDtoOSet(fee);
     }
 }

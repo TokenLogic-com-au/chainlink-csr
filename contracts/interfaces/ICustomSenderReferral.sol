@@ -10,8 +10,7 @@ interface ICustomSenderReferral is ICustomSender {
         uint256 amountOut
     );
 
-    function fastStakeReferral(
-        address token,
+    function depositReferral(
         uint256 amount,
         uint256 minAmountOut,
         address referral
