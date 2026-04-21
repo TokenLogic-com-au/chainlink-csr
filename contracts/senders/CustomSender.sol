@@ -5,6 +5,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 
 import {CCIPTrustedSenderUpgradeable, Client} from "../ccip/CCIPTrustedSenderUpgradeable.sol";
 import {CCIPSenderUpgradeable, CCIPBaseUpgradeable} from "../ccip/CCIPSenderUpgradeable.sol";
+import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {FeeCodec} from "../libraries/FeeCodec.sol";
 import {IOraclePool} from "../interfaces/IOraclePool.sol";
 import {ICustomSender} from "../interfaces/ICustomSender.sol";
@@ -165,7 +166,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint64 destChainSelector,
         address token,
         uint256 amount,
-        bytes calldata feeOtoD
+        uint256 minimumAmountOut,
+        bytes calldata feeOtoD,
+        bytes calldata extraArgs
     ) external virtual onlyRole(SYNC_ROLE) returns (bytes32) {
         if (amount == 0) revert CustomSenderZeroAmount();
         if (token != GHO && token != SGHO) revert CustomSenderInvalidToken();
@@ -184,7 +187,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             destChainSelector,
             token,
             amount,
-            feeOtoD
+            minimumAmountOut,
+            feeOtoD,
+            extraArgs
         );
 
         emit Sync(msg.sender, destChainSelector, messageId, token, amount);
@@ -239,7 +244,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint64 destChainSelector,
         address token,
         uint256 amount,
-        bytes calldata feeOtoD
+        uint256 minimumAmountOut,
+        bytes calldata feeOtoD,
+        bytes calldata extraArgs
     ) internal virtual returns (bytes32) {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
 
@@ -247,7 +254,13 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: token, amount: amount});
 
-        bytes memory data = abi.encode($.vault, $.oraclePool);
+        bytes memory data = abi.encode(
+            $.vault,
+            $.oraclePool,
+            minimumAmountOut,
+            true,
+            extraArgs
+        );
 
         (uint256 maxFee, bool payInGho, uint256 gasLimit) = FeeCodec.decodeCCIP(
             feeOtoD

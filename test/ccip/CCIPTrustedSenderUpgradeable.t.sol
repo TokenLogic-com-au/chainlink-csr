@@ -13,27 +13,37 @@ import "../Mocks/MockCCIPRouter.sol";
 contract CCIPTrustedSenderUpgradeableTest is Test {
     MockCCIPTrustedSender public sender;
     MockCCIPRouter ccipRouter;
-    MockERC20 public linkToken;
+    MockERC20 public ghoToken;
 
-    uint128 public constant LINK_FEE = 1e18;
+    uint128 public constant GHO_FEE = 1e18;
     uint128 public constant NATIVE_FEE = 0.01e18;
 
     function setUp() public {
-        linkToken = new MockERC20("LINK", "LINK", 18);
-        ccipRouter = new MockCCIPRouter(address(linkToken), LINK_FEE, NATIVE_FEE);
+        ghoToken = new MockERC20("GHO", "GHO", 18);
+        ccipRouter = new MockCCIPRouter(address(ghoToken), GHO_FEE, NATIVE_FEE);
 
-        sender = new MockCCIPTrustedSender(address(linkToken), address(ccipRouter));
+        sender = new MockCCIPTrustedSender(
+            address(ghoToken),
+            address(ccipRouter)
+        );
 
         vm.label(address(ccipRouter), "ccipRouter");
-        vm.label(address(linkToken), "linkToken");
+        vm.label(address(ghoToken), "ghoToken");
         vm.label(address(sender), "sender");
     }
 
     function test_Constructor() public {
-        sender = new MockCCIPTrustedSender(address(linkToken), address(ccipRouter)); // to fix coverage
+        sender = new MockCCIPTrustedSender(
+            address(ghoToken),
+            address(ccipRouter)
+        ); // to fix coverage
 
-        assertEq(sender.CCIP_ROUTER(), address(ccipRouter), "test_Constructor::1");
-        assertEq(sender.LINK_TOKEN(), address(linkToken), "test_Constructor::2");
+        assertEq(
+            sender.CCIP_ROUTER(),
+            address(ccipRouter),
+            "test_Constructor::1"
+        );
+        assertEq(sender.GHO_TOKEN(), address(ghoToken), "test_Constructor::2");
     }
 
     function test_SetReceiver(
@@ -42,42 +52,99 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
         bytes memory receiver1,
         bytes memory receiver2
     ) public {
-        vm.assume(keccak256(receiver1) != keccak256(receiver2) && destChainSelector1 != destChainSelector2);
+        vm.assume(
+            keccak256(receiver1) != keccak256(receiver2) &&
+                destChainSelector1 != destChainSelector2
+        );
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(new bytes(0)), "test_SetReceiver::1");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(new bytes(0)), "test_SetReceiver::2");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::1"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::2"
+        );
 
         sender.setReceiver(destChainSelector1, receiver1);
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(receiver1), "test_SetReceiver::3");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(new bytes(0)), "test_SetReceiver::4");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(receiver1),
+            "test_SetReceiver::3"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::4"
+        );
 
         sender.setReceiver(destChainSelector2, receiver2);
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(receiver1), "test_SetReceiver::5");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(receiver2), "test_SetReceiver::6");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(receiver1),
+            "test_SetReceiver::5"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(receiver2),
+            "test_SetReceiver::6"
+        );
 
         sender.setReceiver(destChainSelector1, new bytes(0));
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(new bytes(0)), "test_SetReceiver::7");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(receiver2), "test_SetReceiver::8");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::7"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(receiver2),
+            "test_SetReceiver::8"
+        );
 
         sender.setReceiver(destChainSelector2, new bytes(0));
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(new bytes(0)), "test_SetReceiver::9");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(new bytes(0)), "test_SetReceiver::10");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::9"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(new bytes(0)),
+            "test_SetReceiver::10"
+        );
 
         sender.setReceiver(destChainSelector1, receiver2);
         sender.setReceiver(destChainSelector2, receiver1);
 
-        assertEq(keccak256(sender.getReceiver(destChainSelector1)), keccak256(receiver2), "test_SetReceiver::11");
-        assertEq(keccak256(sender.getReceiver(destChainSelector2)), keccak256(receiver1), "test_SetReceiver::12");
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector1)),
+            keccak256(receiver2),
+            "test_SetReceiver::11"
+        );
+        assertEq(
+            keccak256(sender.getReceiver(destChainSelector2)),
+            keccak256(receiver1),
+            "test_SetReceiver::12"
+        );
     }
 
     function test_Fuzz_Revert_SetSender(address msgSender) public {
         vm.assume(msgSender != address(this));
 
-        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, msgSender, 0));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                msgSender,
+                0
+            )
+        );
         vm.prank(msgSender);
         sender.setReceiver(0, abi.encode(keccak256(new bytes(0))));
     }
@@ -89,11 +156,13 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
         uint64 destChainSelector,
         bytes32[] memory tokenSalts,
         uint128[] memory amounts,
-        bool payInLink,
+        bool payInGho,
         uint32 gasLimit,
         bytes memory data
     ) public {
-        vm.assume(receiver.length > 0 && tokenSalts.length > 0 && amounts.length > 0);
+        vm.assume(
+            receiver.length > 0 && tokenSalts.length > 0 && amounts.length > 0
+        );
 
         uint256 length = tokenSalts.length > 10 ? 10 : tokenSalts.length;
         length = amounts.length > length ? length : amounts.length;
@@ -101,16 +170,17 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
         sender.setReceiver(destChainSelector, receiver);
 
         uint256 nativeFee;
-        if (payInLink) {
+        if (payInGho) {
             nativeFee = 0;
 
-            linkToken.mint(address(this), LINK_FEE);
-            linkToken.approve(address(sender), LINK_FEE);
+            ghoToken.mint(address(this), GHO_FEE);
+            ghoToken.approve(address(sender), GHO_FEE);
         } else {
             nativeFee = NATIVE_FEE;
         }
 
-        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](length);
+        Client.EVMTokenAmount[]
+            memory tokenAmounts = new Client.EVMTokenAmount[](length);
 
         for (uint256 i = 0; i < length; i++) {
             bytes32 salt = tokenSalts[i];
@@ -119,60 +189,116 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
             uint256 amount = bound(amounts[i], 1, type(uint128).max);
 
             if (token == address(0)) {
-                token = address(new MockERC20{salt: salt}("TOKEN", "TOKEN", 18));
+                token = address(
+                    new MockERC20{salt: salt}("TOKEN", "TOKEN", 18)
+                );
                 tokens[salt] = token;
             }
 
             MockERC20(token).mint(address(sender), amount);
 
-            tokenAmounts[i] = Client.EVMTokenAmount({token: token, amount: amount});
+            tokenAmounts[i] = Client.EVMTokenAmount({
+                token: token,
+                amount: amount
+            });
         }
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: receiver,
             data: data,
             tokenAmounts: tokenAmounts,
-            feeToken: payInLink ? address(linkToken) : address(0),
-            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit}))
+            feeToken: payInGho ? address(ghoToken) : address(0),
+            extraArgs: Client._argsToBytes(
+                Client.EVMExtraArgsV1({gasLimit: gasLimit})
+            )
         });
 
-        bytes32 messageId =
-            sender.ccipSend{value: nativeFee}(destChainSelector, tokenAmounts, payInLink, LINK_FEE, gasLimit, data);
+        bytes32 messageId = sender.ccipSend{value: nativeFee}(
+            destChainSelector,
+            tokenAmounts,
+            payInGho,
+            GHO_FEE,
+            gasLimit,
+            data
+        );
 
         assertEq(messageId, keccak256("test"), "test_Fuzz_CCIPSend::1");
-        assertEq(ccipRouter.value(), payInLink ? 0 : NATIVE_FEE, "test_Fuzz_CCIPSend::2");
-        assertEq(linkToken.balanceOf(address(ccipRouter)), payInLink ? LINK_FEE : 0, "test_Fuzz_CCIPSend::3");
-        assertEq(ccipRouter.data(), abi.encode(destChainSelector, message), "test_Fuzz_CCIPSend::4");
+        assertEq(
+            ccipRouter.value(),
+            payInGho ? 0 : NATIVE_FEE,
+            "test_Fuzz_CCIPSend::2"
+        );
+        assertEq(
+            ghoToken.balanceOf(address(ccipRouter)),
+            payInGho ? GHO_FEE : 0,
+            "test_Fuzz_CCIPSend::3"
+        );
+        assertEq(
+            ccipRouter.data(),
+            abi.encode(destChainSelector, message),
+            "test_Fuzz_CCIPSend::4"
+        );
     }
 
-    function test_Fuzz_Revert_CCIPSend(bytes memory receiver, uint64 destChainSelector, bool payInLink, uint256 maxFee)
-        public
-    {
+    function test_Fuzz_Revert_CCIPSend(
+        bytes memory receiver,
+        uint64 destChainSelector,
+        bool payInGho,
+        uint256 maxFee
+    ) public {
         vm.assume(receiver.length > 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                ICCIPTrustedSenderUpgradeable.CCIPTrustedSenderUnsupportedChain.selector, destChainSelector
+                ICCIPTrustedSenderUpgradeable
+                    .CCIPTrustedSenderUnsupportedChain
+                    .selector,
+                destChainSelector
             )
         );
-        sender.ccipSend(destChainSelector, new Client.EVMTokenAmount[](1), false, 0, 0, new bytes(0));
+        sender.ccipSend(
+            destChainSelector,
+            new Client.EVMTokenAmount[](1),
+            false,
+            0,
+            0,
+            new bytes(0)
+        );
 
         sender.setReceiver(destChainSelector, receiver);
 
-        uint256 fee = payInLink ? LINK_FEE : NATIVE_FEE;
+        uint256 fee = payInGho ? GHO_FEE : NATIVE_FEE;
         uint256 invalidFee = bound(maxFee, 0, fee - 1);
 
-        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: address(linkToken), amount: 1});
+        Client.EVMTokenAmount[]
+            memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({
+            token: address(ghoToken),
+            amount: 1
+        });
 
         vm.expectRevert(
-            abi.encodeWithSelector(ICCIPSenderUpgradeable.CCIPSenderExceedsMaxFee.selector, fee, invalidFee)
+            abi.encodeWithSelector(
+                ICCIPSenderUpgradeable.CCIPSenderExceedsMaxFee.selector,
+                fee,
+                invalidFee
+            )
         );
-        sender.ccipSend(destChainSelector, tokenAmounts, payInLink, invalidFee, 0, new bytes(0));
+        sender.ccipSend(
+            destChainSelector,
+            tokenAmounts,
+            payInGho,
+            invalidFee,
+            0,
+            new bytes(0)
+        );
     }
 
     function test_Fuzz_Initialize() public {
-        sender = new MockCCIPTrustedSender(address(linkToken), address(ccipRouter));
+        sender = new MockCCIPTrustedSender(
+            address(ghoToken),
+            address(ccipRouter)
+        );
 
         sender.initialize();
 
@@ -181,7 +307,10 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
     }
 
     function test_Fuzz_InitializeUnchained() public {
-        sender = new MockCCIPTrustedSender(address(linkToken), address(ccipRouter));
+        sender = new MockCCIPTrustedSender(
+            address(ghoToken),
+            address(ccipRouter)
+        );
 
         sender.initializeUnchained();
 
@@ -190,7 +319,10 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
     }
 
     function test_Fuzz_BadInitialize() public {
-        sender = new MockCCIPTrustedSender(address(linkToken), address(ccipRouter));
+        sender = new MockCCIPTrustedSender(
+            address(ghoToken),
+            address(ccipRouter)
+        );
 
         vm.expectRevert(Initializable.NotInitializing.selector);
         sender.badInitialize();
@@ -198,10 +330,10 @@ contract CCIPTrustedSenderUpgradeableTest is Test {
 }
 
 contract MockCCIPTrustedSender is CCIPTrustedSenderUpgradeable {
-    constructor(address linkToken, address ccipRouter)
-        CCIPSenderUpgradeable(linkToken)
-        CCIPBaseUpgradeable(ccipRouter)
-    {
+    constructor(
+        address ghoToken,
+        address ccipRouter
+    ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -220,12 +352,20 @@ contract MockCCIPTrustedSender is CCIPTrustedSenderUpgradeable {
     function ccipSend(
         uint64 destChainSelector,
         Client.EVMTokenAmount[] memory tokenAmounts,
-        bool payInLink,
+        bool payInGho,
         uint256 maxFee,
         uint32 gasLimit,
         bytes calldata data
     ) external payable returns (bytes32) {
-        return _ccipSend(destChainSelector, tokenAmounts, payInLink, maxFee, gasLimit, data);
+        return
+            _ccipSend(
+                destChainSelector,
+                tokenAmounts,
+                payInGho,
+                maxFee,
+                gasLimit,
+                data
+            );
     }
 
     // Force foundry to ignore this contract from coverage

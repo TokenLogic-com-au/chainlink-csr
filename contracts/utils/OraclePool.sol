@@ -39,10 +39,10 @@ contract OraclePool is Ownable, IOraclePool {
     }
 
     /**
-     * @dev Sets the immutable values for {SENDER}, {TOKEN_IN}, {TOKEN_OUT} and the initial values for the oracle, the swap fee and the owner.
+     * @dev Sets the immutable values for {SENDER}, {GHO}, {SGHO} and the initial values for the oracle, the swap fee and the owner.
      *
      * The `SENDER` account is the only account allowed to call the swap and pull functions.
-     * The `TOKEN_IN` and `TOKEN_OUT` addresses are the addresses of the tokens to be swapped.
+     * The `GHO` and `SGHO` addresses are the addresses of the tokens to be swapped.
      * The `oracle` address is the address of the oracle contract.
      * The `fee` is the fee to be applied to each swap (in 1e18 scale).
      * The `initialOwner` is the address of the initial owner.

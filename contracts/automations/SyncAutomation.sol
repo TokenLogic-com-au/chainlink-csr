@@ -133,6 +133,8 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
         } else {
             maxNativeFee = maxFeeOtoD;
         }
+
+        return (maxNativeFee, maxGhoFee);
     }
 
     /**

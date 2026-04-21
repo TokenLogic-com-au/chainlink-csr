@@ -47,6 +47,7 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         uint64 destChainSelector,
         address token,
         uint256 amount,
+        uint256 minimumAmountOut,
         bytes calldata feeOtoD
     ) external returns (bytes32);
 

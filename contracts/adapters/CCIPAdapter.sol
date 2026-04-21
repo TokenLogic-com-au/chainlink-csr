@@ -21,17 +21,22 @@ contract CCIPAdapter is BridgeAdapter, CCIPSenderUpgradeable {
     address public immutable L1_TOKEN;
 
     /**
-     * @dev Sets the immutable values for {L1_TOKEN}, {LINK_TOKEN}, {CCIP_ROUTER}, and {DELEGATOR}.
+     * @dev Sets the immutable values for {L1_TOKEN}, {GHO_TOKEN}, {CCIP_ROUTER}, and {DELEGATOR}.
      * The {L1_TOKEN} is set to address(0) as this adapter only supports fees paid in native token.
      *
      * The `l1Token` address is the address of the L1 token contract.
-     * The `linkToken` address is the address of the LINK token contract.
+     * The `ghoToken` address is the address of the GHO token contract.
      * The `ccipRouter` address is the address of the CCIP router contract.
      * The `delegator` address is the address of the delegator contract.
      */
-    constructor(address l1Token, address ccipRouter, address linkToken, address delegator)
+    constructor(
+        address l1Token,
+        address ccipRouter,
+        address ghoToken,
+        address delegator
+    )
         BridgeAdapter(delegator)
-        CCIPSenderUpgradeable(linkToken)
+        CCIPSenderUpgradeable(ghoToken)
         CCIPBaseUpgradeable(ccipRouter)
     {
         if (l1Token == address(0)) revert CCIPAdapterInvalidParameters();
@@ -46,17 +51,31 @@ contract CCIPAdapter is BridgeAdapter, CCIPSenderUpgradeable {
      *
      * - The fee must be paid in native token.
      */
-    function _sendToken(uint64 destChainSelector, address to, uint256 amount, bytes calldata feeData)
-        internal
-        override
-    {
-        (uint256 maxFee, bool payInLink, uint256 gasLimit) = FeeCodec.decodeCCIP(feeData);
+    function _sendToken(
+        uint64 destChainSelector,
+        address to,
+        uint256 amount,
+        bytes calldata feeData
+    ) internal override {
+        (uint256 maxFee, bool payInLink, uint256 gasLimit) = FeeCodec
+            .decodeCCIP(feeData);
 
-        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
-        tokenAmounts[0] = Client.EVMTokenAmount({token: L1_TOKEN, amount: amount});
+        Client.EVMTokenAmount[]
+            memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({
+            token: L1_TOKEN,
+            amount: amount
+        });
 
         bytes32 messageId = _ccipSendTo(
-            destChainSelector, address(this), abi.encode(to), tokenAmounts, payInLink, maxFee, gasLimit, new bytes(0)
+            destChainSelector,
+            address(this),
+            abi.encode(to),
+            tokenAmounts,
+            payInLink,
+            maxFee,
+            gasLimit,
+            new bytes(0)
         );
 
         emit CCIPMessageSent(messageId);
