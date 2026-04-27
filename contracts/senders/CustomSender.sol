@@ -65,7 +65,11 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address oraclePool,
         address initialAdmin
     ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
-        if (sghoToken == address(0) || ghoToken == address(0)) {
+        if (
+            sghoToken == address(0) ||
+            ghoToken == address(0) ||
+            sghoToken == ghoToken
+        ) {
             revert CustomSenderInvalidParameters();
         }
 

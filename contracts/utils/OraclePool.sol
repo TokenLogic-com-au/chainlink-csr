@@ -188,8 +188,9 @@ contract OraclePool is Ownable, IOraclePool {
         }
 
         uint256 available = IERC20(token).balanceOf(address(this));
-        if (amount > available)
+        if (amount > available) {
             revert OraclePoolInsufficientToken(token, amount, available);
+        }
 
         IERC20(token).safeTransfer(msg.sender, amount);
 

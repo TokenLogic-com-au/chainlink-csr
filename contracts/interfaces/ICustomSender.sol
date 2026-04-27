@@ -48,7 +48,8 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         address token,
         uint256 amount,
         uint256 minimumAmountOut,
-        bytes calldata feeOtoD
+        bytes calldata feeOtoD,
+        bytes calldata extraArgs
     ) external returns (bytes32);
 
     function setOraclePool(address oraclePool) external;

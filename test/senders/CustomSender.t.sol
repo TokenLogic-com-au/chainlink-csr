@@ -85,7 +85,6 @@ contract CustomSenderTest is Test {
         vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
         sender = new CustomSender(
             address(0),
-            address(token),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -95,7 +94,6 @@ contract CustomSenderTest is Test {
         vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
         sender = new CustomSender(
             address(token),
-            address(0),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -108,7 +106,6 @@ contract CustomSenderTest is Test {
         sender = new CustomSender(
             address(token),
             address(token),
-            address(0),
             address(ccipRouter),
             address(oraclePool),
             address(this)
@@ -119,7 +116,6 @@ contract CustomSenderTest is Test {
         );
         sender = new CustomSender(
             address(token),
-            address(token),
             address(gho),
             address(0),
             address(oraclePool),
@@ -129,7 +125,6 @@ contract CustomSenderTest is Test {
         // Should not revert, we allow the oracle pool to be set to address(0) to disable fast stake
         sender = new CustomSender(
             address(token),
-            address(token),
             address(gho),
             address(ccipRouter),
             address(0),
@@ -138,7 +133,6 @@ contract CustomSenderTest is Test {
 
         vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
         sender = new CustomSender(
-            address(token),
             address(token),
             address(gho),
             address(ccipRouter),
@@ -232,7 +226,7 @@ contract CustomSenderTest is Test {
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.deposit(address(0), amountIn, 0);
+        sender.deposit(amountIn, 0);
 
         sender.setOraclePool(address(oraclePool));
 
@@ -240,15 +234,6 @@ contract CustomSenderTest is Test {
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
         sender.deposit(0, 0);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ICustomSender.CustomSenderInsufficientNativeBalance.selector,
-                amountIn,
-                0
-            )
-        );
-        sender.deposit(address(0), amountIn, 0);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -281,7 +266,7 @@ contract CustomSenderTest is Test {
         );
 
         vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.deposit(address(0), 1, 0);
+        sender.deposit(1, 0);
     }
 
     struct Amounts {
@@ -318,10 +303,7 @@ contract CustomSenderTest is Test {
             gasLimitOtoD
         );
 
-        Amounts memory amounts = Amounts({
-            native: (payInGhoOtoD ? 0 : NATIVE_FEE),
-            gho: (payInGhoOtoD ? GHO_FEE : 0)
-        });
+        Amounts memory amounts = Amounts({gho: (payInGhoOtoD ? GHO_FEE : 0)});
 
         if (amounts.gho > 0) {
             gho.mint(address(this), amounts.gho);
@@ -333,7 +315,7 @@ contract CustomSenderTest is Test {
         tokenAmounts = new Client.EVMTokenAmount[](2);
         tokenAmounts[0] = Client.EVMTokenAmount({
             token: address(gho),
-            amount: amounts.wnative
+            amount: amounts.gho
         });
         tokenAmounts[1] = Client.EVMTokenAmount({
             token: address(gho),
@@ -358,46 +340,37 @@ contract CustomSenderTest is Test {
 
         uint256 balance = address(this).balance;
 
-        sender.sync(destChainSelector, amountToSync, feeOtoD);
-
-        assertEq(wnative.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
-        assertEq(
-            wnative.balanceOf(address(oraclePool)),
+        sender.sync(
+            destChainSelector,
+            address(gho),
+            amountToSync,
             0,
-            "test_Fuzz_Sync::2"
+            feeOtoD,
+            bytes("")
         );
+
+        assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
+        assertEq(gho.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::2");
         assertEq(
-            wnative.balanceOf(address(ccipRouter)),
-            amounts.wnative,
+            gho.balanceOf(address(ccipRouter)),
+            amounts.gho,
             "test_Fuzz_Sync::3"
         );
         assertEq(token.balanceOf(address(this)), 0, "test_Fuzz_Sync::4");
         assertEq(token.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::5");
         assertEq(token.balanceOf(address(ccipRouter)), 0, "test_Fuzz_Sync::6");
-        assertEq(link.balanceOf(address(this)), 0, "test_Fuzz_Sync::7");
-        assertEq(link.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::8");
+        assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::7");
+        assertEq(gho.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::8");
         assertEq(
             gho.balanceOf(address(ccipRouter)),
-            amounts.link,
+            amounts.gho,
             "test_Fuzz_Sync::9"
         );
-        assertEq(
-            address(this).balance,
-            balance - amounts.native,
-            "test_Fuzz_Sync::10"
-        );
+        assertEq(address(this).balance, 0, "test_Fuzz_Sync::10");
         assertEq(address(oraclePool).balance, 0, "test_Fuzz_Sync::11");
-        assertEq(
-            address(ccipRouter).balance,
-            payInGhoOtoD ? 0 : NATIVE_FEE,
-            "test_Fuzz_Sync::12"
-        );
+        assertEq(address(ccipRouter).balance, 0, "test_Fuzz_Sync::12");
 
-        assertEq(
-            ccipRouter.value(),
-            (payInGhoOtoD ? 0 : NATIVE_FEE),
-            "test_Fuzz_Sync::13"
-        );
+        assertEq(ccipRouter.value(), 0, "test_Fuzz_Sync::13");
         assertEq(
             ccipRouter.data(),
             abi.encode(destChainSelector, message),
@@ -415,37 +388,40 @@ contract CustomSenderTest is Test {
                 sender.SYNC_ROLE()
             )
         );
-        sender.sync(0, 0, new bytes(0), new bytes(0));
+        sender.sync(0, address(gho), 0, 0, new bytes(0), new bytes(0));
 
         sender.grantRole(sender.SYNC_ROLE(), address(this));
 
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.sync(0, 0, new bytes(0), new bytes(0));
+        sender.sync(0, address(gho), 0, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.sync(0, 1, new bytes(0), new bytes(0));
+        sender.sync(0, address(gho), 1, 0, new bytes(0), new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 IOraclePool.OraclePoolInsufficientToken.selector,
-                address(wnative),
+                address(gho),
                 amountToSync,
                 0
             )
         );
-        sender.sync(0, amountToSync, new bytes(0), new bytes(0));
+        sender.sync(
+            0,
+            address(gho),
+            amountToSync,
+            0,
+            new bytes(0),
+            new bytes(0)
+        );
 
         amountToSync = bound(amountToSync, 1, 100e18);
 
-        wnative.deposit{value: amountToSync}();
-        wnative.transfer(address(oraclePool), amountToSync);
-
-        wnative.deposit{value: amountToSync}();
-
+        gho.transfer(address(oraclePool), amountToSync);
         vm.expectRevert(
             abi.encodeWithSelector(
                 FeeCodec.FeeCodecInvalidDataLength.selector,
@@ -453,7 +429,14 @@ contract CustomSenderTest is Test {
                 17
             )
         );
-        sender.sync(0, amountToSync, new bytes(0), new bytes(0));
+        sender.sync(
+            0,
+            address(gho),
+            amountToSync,
+            0,
+            new bytes(0),
+            new bytes(0)
+        );
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -462,23 +445,23 @@ contract CustomSenderTest is Test {
                 21
             )
         );
-        sender.sync(0, amountToSync, new bytes(0), new bytes(17));
-
-        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
-        sender.sync(0, amountToSync, new bytes(21), new bytes(17));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ICustomSender.CustomSenderInsufficientNativeBalance.selector,
-                1,
-                0
-            )
-        );
         sender.sync(
             0,
+            address(gho),
             amountToSync,
-            new bytes(17),
-            abi.encodePacked(uint128(1), false)
+            0,
+            new bytes(0),
+            new bytes(17)
+        );
+
+        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
+        sender.sync(
+            0,
+            address(gho),
+            amountToSync,
+            0,
+            new bytes(21),
+            new bytes(17)
         );
     }
 

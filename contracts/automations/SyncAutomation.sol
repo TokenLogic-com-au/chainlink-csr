@@ -178,7 +178,14 @@ contract SyncAutomation is AutomationCompatible, Ownable, ISyncAutomation {
         );
 
         address token = abi.decode(performData, (address));
-        ICustomSender(SENDER).sync(DEST_CHAIN_SELECTOR, token, amount, feeOtoD);
+        ICustomSender(SENDER).sync(
+            DEST_CHAIN_SELECTOR,
+            token,
+            amount,
+            0,
+            feeOtoD,
+            bytes("")
+        );
     }
 
     /**
