@@ -26,7 +26,7 @@ abstract contract CCIPSenderUpgradeable is
      * @dev Sets the immutable value for {GHO_TOKEN}.
      */
     constructor(address ghoToken) {
-        if (ghoToken == address(0)) revert CCIPSenderInvalidParameters();
+        require(ghoToken != address(0), CCIPSenderInvalidParameters());
 
         GHO_TOKEN = ghoToken;
     }
@@ -61,15 +61,17 @@ abstract contract CCIPSenderUpgradeable is
         uint256 gasLimit,
         bytes memory data
     ) internal virtual returns (bytes32) {
-        if (receiver.length == 0) revert CCIPSenderEmptyReceiver();
+        require(receiver.length > 0, CCIPSenderEmptyReceiver());
 
         uint256 length = tokenAmounts.length;
         for (uint256 i = 0; i < length; ++i) {
             address token = tokenAmounts[i].token;
             uint256 amount = tokenAmounts[i].amount;
 
-            if (amount == 0 || token == address(0))
-                revert CCIPSenderInvalidTokenAmount();
+            require(
+                amount > 0 && token != address(0),
+                CCIPSenderInvalidTokenAmount()
+            );
 
             IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
         }
@@ -88,7 +90,7 @@ abstract contract CCIPSenderUpgradeable is
             destChainSelector,
             message
         );
-        if (fee > maxFee) revert CCIPSenderExceedsMaxFee(fee, maxFee);
+        require(fee <= maxFee, CCIPSenderExceedsMaxFee(fee, maxFee));
 
         uint256 nativeFee;
         if (payInGho) {

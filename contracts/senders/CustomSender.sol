@@ -37,7 +37,6 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     struct CustomSenderStorage {
         address oraclePool;
         address vault;
-        address supplyOracle;
     }
 
     // keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.CustomSender")) - 1)) & ~bytes32(uint256(0xff))
@@ -65,13 +64,12 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address oraclePool,
         address initialAdmin
     ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
-        if (
-            sghoToken == address(0) ||
-            ghoToken == address(0) ||
-            sghoToken == ghoToken
-        ) {
-            revert CustomSenderInvalidParameters();
-        }
+        require(
+            sghoToken != address(0) &&
+                ghoToken != address(0) &&
+                sghoToken != ghoToken,
+            CustomSenderInvalidParameters()
+        );
 
         GHO = ghoToken;
         SGHO = sghoToken;
@@ -87,21 +85,21 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address oraclePool,
         address initialAdmin
     ) public initializer {
-        if (initialAdmin == address(0)) revert CustomSenderInvalidParameters();
+        require(initialAdmin != address(0), CustomSenderInvalidParameters());
 
         _grantRole(DEFAULT_ADMIN_ROLE, initialAdmin);
         _setOraclePool(oraclePool);
     }
 
     /**
-     * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
-     * The user sends (W)Native to this contract, the oracle pool swaps the (W)Native for the native staked token,
-     * and sends the native staked token back to the user.
+     * @dev Allows users to swap GHO for sGHO using an oracle pool.
+     * The user sends GHO to this contract, the oracle pool swaps the GHO for sGHO,
+     * and sends the sGHO back to the user.
      *
      * Requirements:
      *
      * - The amount sent must be greater than 0.
-     * - The token sent must be the wrapped native token or native token.
+     * - The token sent must be GHO.
      *
      * Emits a {Deposit} event.
      */
@@ -109,13 +107,12 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint256 amount,
         uint256 minAmountOut
     ) public virtual returns (uint256) {
-        if (amount == 0) revert CustomSenderZeroAmount();
+        require(amount > 0, CustomSenderZeroAmount());
 
         address oraclePool = _getCustomSenderStorage().oraclePool;
-        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
 
-        _pullFrom(GHO, msg.sender, amount);
-
+        IERC20(GHO).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(GHO).forceApprove(oraclePool, amount);
 
         uint256 amountOut = IOraclePool(oraclePool).deposit(
@@ -129,17 +126,28 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return amountOut;
     }
 
+    /**
+     * @dev Allows users to swap sGHO for GHO using an oracle pool.
+     * The user sends sGHO to this contract, the oracle pool swaps the sGHO for GHO,
+     * and sends the GHO back to the user.
+     *
+     * Requirements:
+     *
+     * - The amount sent must be greater than 0.
+     * - The token sent must be sGHO.
+     *
+     * Emits a {Redeem} event.
+     */
     function redeem(
         uint256 amount,
         uint256 minAmountOut
     ) public virtual returns (uint256) {
-        if (amount == 0) revert CustomSenderZeroAmount();
+        require(amount > 0, CustomSenderZeroAmount());
 
         address oraclePool = _getCustomSenderStorage().oraclePool;
-        if (oraclePool == address(0)) revert CustomSenderOraclePoolNotSet();
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
 
-        _pullFrom(SGHO, msg.sender, amount);
-
+        IERC20(SGHO).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(SGHO).forceApprove(oraclePool, amount);
 
         uint256 amountOut = IOraclePool(oraclePool).redeem(
@@ -173,19 +181,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint256 minimumAmountOut,
         bytes calldata feeOtoD,
         bytes calldata extraArgs
-    ) external virtual onlyRole(SYNC_ROLE) returns (bytes32) {
-        if (amount == 0) revert CustomSenderZeroAmount();
-        if (token != GHO && token != SGHO) revert CustomSenderInvalidToken();
+    ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
+        require(amount > 0, CustomSenderZeroAmount());
+        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
 
-        CustomSenderStorage storage $ = _getCustomSenderStorage();
+        address oraclePool = _getCustomSenderStorage().oraclePool;
 
-        if ($.oraclePool == address(0) || $.supplyOracle == address(0)) {
-            revert CustomSenderOraclePoolNotSet();
-        }
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
 
-        // if (ISupplyOracle($.supplyOracle).capacityReached()) revert MaxSupplyReached();
-
-        IOraclePool($.oraclePool).pull(token, amount);
+        IOraclePool(oraclePool).pull(token, amount);
 
         bytes32 messageId = _buildAndSendSync(
             destChainSelector,
@@ -217,13 +221,6 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         _setOraclePool(oraclePool);
     }
 
-    function setSupplyOracle(
-        address oracle
-    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _getCustomSenderStorage().supplyOracle = oracle;
-        emit SupplyOracleSet(oracle);
-    }
-
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _getCustomSenderStorage().vault = vault;
         emit VaultSet(vault);
@@ -234,10 +231,6 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      */
     function getOraclePool() public view returns (address) {
         return _getCustomSenderStorage().oraclePool;
-    }
-
-    function getSupplyOracle() public view returns (address) {
-        return _getCustomSenderStorage().supplyOracle;
     }
 
     function getVault() public view returns (address) {
@@ -270,8 +263,10 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             feeOtoD
         );
 
-        if (gasLimit < MIN_PROCESS_MESSAGE_GAS)
-            revert CustomSenderInsufficientGas();
+        require(
+            gasLimit >= MIN_PROCESS_MESSAGE_GAS,
+            CustomSenderInsufficientGas()
+        );
 
         return
             _ccipSend(
@@ -291,7 +286,6 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      */
     function _setOraclePool(address oraclePool) internal virtual {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
-
         $.oraclePool = oraclePool;
 
         emit OraclePoolSet(oraclePool);
@@ -308,9 +302,5 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address token,
         address user,
         uint256 amount
-    ) internal virtual {
-        if (amount > 0) {
-            IERC20(token).safeTransferFrom(user, address(this), amount);
-        }
-    }
+    ) internal virtual {}
 }

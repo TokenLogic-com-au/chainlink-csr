@@ -48,7 +48,7 @@ contract CustomSenderReferralTest is Test {
             address(gho),
             address(token),
             address(priceOracle),
-            0.05e18,
+            500,
             address(this)
         );
         sender = new CustomSenderReferral(

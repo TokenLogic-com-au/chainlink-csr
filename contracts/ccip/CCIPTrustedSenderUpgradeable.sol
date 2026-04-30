@@ -112,8 +112,10 @@ abstract contract CCIPTrustedSenderUpgradeable is
         bytes memory data
     ) internal virtual returns (bytes32) {
         bytes memory receiver = getReceiver(destChainSelector);
-        if (receiver.length == 0)
-            revert CCIPTrustedSenderUnsupportedChain(destChainSelector);
+        require(
+            receiver.length > 0,
+            CCIPTrustedSenderUnsupportedChain(destChainSelector)
+        );
 
         return
             _ccipSendTo(
