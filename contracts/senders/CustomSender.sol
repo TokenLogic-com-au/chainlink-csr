@@ -5,6 +5,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 
 import {CCIPTrustedSenderUpgradeable, Client} from "../ccip/CCIPTrustedSenderUpgradeable.sol";
 import {CCIPSenderUpgradeable, CCIPBaseUpgradeable} from "../ccip/CCIPSenderUpgradeable.sol";
+import {TokenHelper} from "../libraries/TokenHelper.sol";
 import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {FeeCodec} from "../libraries/FeeCodec.sol";
 import {IOraclePool} from "../interfaces/IOraclePool.sol";
@@ -199,6 +200,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             feeOtoD,
             extraArgs
         );
+
+        TokenHelper.refundExcessNative(msg.sender);
 
         emit Sync(msg.sender, destChainSelector, messageId, token, amount);
 

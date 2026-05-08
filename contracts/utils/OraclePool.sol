@@ -90,6 +90,7 @@ contract OraclePool is Ownable, IOraclePool {
         uint256 minAmountOut
     ) public virtual override onlySender returns (uint256) {
         require(amountIn > 0, OraclePoolZeroAmountIn());
+        if (address(_oracle) == address(0)) revert OraclePoolOracleNotSet();
 
         uint256 feeAmount = (amountIn * _fee) / MAX_BPS;
         uint256 price = _oracle.getLatestAnswer();
@@ -104,7 +105,7 @@ contract OraclePool is Ownable, IOraclePool {
             _lastPrice = price;
         }
 
-        uint256 amountOut = ((amountIn - feeAmount) * price) / PRECISION;
+        uint256 amountOut = ((amountIn - feeAmount) * PRECISION) / price;
 
         require(
             amountOut >= minAmountOut,
@@ -147,6 +148,7 @@ contract OraclePool is Ownable, IOraclePool {
         uint256 minAmountOut
     ) public virtual override onlySender returns (uint256) {
         require(amountIn > 0, OraclePoolZeroAmountIn());
+        if (address(_oracle) == address(0)) revert OraclePoolOracleNotSet();
 
         uint256 feeAmount = (amountIn * _fee) / MAX_BPS;
         uint256 price = _oracle.getLatestAnswer();
@@ -161,7 +163,7 @@ contract OraclePool is Ownable, IOraclePool {
             _lastPrice = price;
         }
 
-        uint256 amountOut = ((amountIn - feeAmount) * PRECISION) / price;
+        uint256 amountOut = ((amountIn - feeAmount) * price) / PRECISION;
 
         require(
             amountOut >= minAmountOut,
@@ -274,7 +276,6 @@ contract OraclePool is Ownable, IOraclePool {
      * @dev Sets the oracle contract. Can be set to the zero address to prevent the swap function from being called.
      */
     function _setOracle(IOracle oracle) internal virtual {
-        require(address(oracle) != address(0), OraclePoolInvalidParameters());
         _oracle = oracle;
 
         emit OracleUpdated(address(oracle));

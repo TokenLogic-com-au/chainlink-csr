@@ -26,6 +26,8 @@ contract CustomSenderReferralTest is Test {
     MockERC20 public gho;
     MockERC20 public token;
 
+    address public vault = makeAddr("vault");
+
     uint128 public constant GHO_FEE = 1e18;
     uint128 public constant NATIVE_FEE = 0.01e18;
 
@@ -98,7 +100,9 @@ contract CustomSenderReferralTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInvalidParameters.selector
+        );
         sender = new CustomSenderReferral(
             address(token),
             address(0),
@@ -107,13 +111,11 @@ contract CustomSenderReferralTest is Test {
             address(this)
         );
 
-        vm.expectRevert(
-            ICCIPSenderUpgradeable.CCIPSenderInvalidParameters.selector
-        );
+        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
         sender = new CustomSenderReferral(
             address(token),
-            address(gho),
-            address(0),
+            address(token),
+            address(ccipRouter),
             address(oraclePool),
             address(this)
         );
@@ -124,7 +126,7 @@ contract CustomSenderReferralTest is Test {
         sender = new CustomSenderReferral(
             address(token),
             address(gho),
-            address(ccipRouter),
+            address(0),
             address(oraclePool),
             address(0)
         );
@@ -148,7 +150,6 @@ contract CustomSenderReferralTest is Test {
         amountIn = bound(amountIn, 1, type(uint256).max);
 
         dataFeed.set(1e18, 1, block.timestamp, block.timestamp, 1);
-
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
@@ -157,9 +158,6 @@ contract CustomSenderReferralTest is Test {
         sender.setOraclePool(address(oraclePool));
 
         address badToken = address(new MockERC20("BadToken", "BAD", 18));
-
-        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.depositReferral(1, 0, address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
         sender.depositReferral(0, 0, address(0));
@@ -193,28 +191,18 @@ contract CustomSenderReferralTest is Test {
             address(oraclePool),
             address(this)
         );
-
-        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.depositReferral(1, 0, address(0));
-    }
-
-    struct Amounts {
-        uint256 gho;
     }
 
     function test_Fuzz_Sync(
         bytes memory receiver,
         uint64 destChainSelector,
         uint256 amountToSync,
-        uint32 gasLimitOtoD,
-        uint128 feeAmountDtoO
+        bool payInGhoOtoD,
+        uint32 gasLimitOtoD
     ) public {
-        bool payInLinkOtoD = true;
-
         vm.assume(receiver.length > 0);
 
         amountToSync = bound(amountToSync, 1, 100e18);
-        feeAmountDtoO = uint128(bound(feeAmountDtoO, 0, 10e18));
         gasLimitOtoD = uint32(
             bound(
                 gasLimitOtoD,
@@ -225,97 +213,87 @@ contract CustomSenderReferralTest is Test {
 
         sender.setReceiver(destChainSelector, receiver);
         sender.grantRole(sender.SYNC_ROLE(), address(this));
+        sender.setVault(address(vault));
 
         bytes memory feeOtoD = FeeCodec.encodeCCIP(
-            payInLinkOtoD ? GHO_FEE : NATIVE_FEE,
-            payInLinkOtoD,
+            payInGhoOtoD ? GHO_FEE : NATIVE_FEE,
+            payInGhoOtoD,
             gasLimitOtoD
         );
 
-        Amounts memory amounts = Amounts({gho: GHO_FEE});
-
-        if (amounts.gho > 0) {
-            gho.mint(address(this), amounts.gho);
-            gho.approve(address(sender), amounts.gho);
+        if (payInGhoOtoD) {
+            gho.mint(address(this), GHO_FEE);
+            gho.approve(address(sender), GHO_FEE);
         }
 
         Client.EVMTokenAmount[] memory tokenAmounts;
 
-        tokenAmounts = new Client.EVMTokenAmount[](2);
+        tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({
             token: address(gho),
-            amount: amounts.gho
-        });
-        tokenAmounts[1] = Client.EVMTokenAmount({
-            token: address(gho),
-            amount: feeAmountDtoO
+            amount: amountToSync
         });
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: receiver,
-            data: FeeCodec.encodePackedDataMemory(
+            data: abi.encode(
+                vault,
                 address(oraclePool),
-                amountToSync,
-                ""
+                uint256(0),
+                true,
+                bytes("")
             ),
             tokenAmounts: tokenAmounts,
-            feeToken: payInLinkOtoD ? address(gho) : address(0),
+            feeToken: payInGhoOtoD ? address(gho) : address(0),
             extraArgs: Client._argsToBytes(
                 Client.EVMExtraArgsV1({gasLimit: gasLimitOtoD})
             )
         });
 
-        gho.transfer(address(oraclePool), amountToSync);
+        gho.mint(address(oraclePool), amountToSync);
 
         uint256 balance = address(this).balance;
 
-        sender.sync(
+        sender.sync{value: 1e18 + NATIVE_FEE}(
             destChainSelector,
             address(gho),
             amountToSync,
             0,
             feeOtoD,
-            ""
+            bytes("")
         );
 
         assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
         assertEq(gho.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::2");
         assertEq(
             gho.balanceOf(address(ccipRouter)),
-            amounts.gho,
+            payInGhoOtoD ? amountToSync + GHO_FEE : amountToSync,
             "test_Fuzz_Sync::3"
         );
         assertEq(token.balanceOf(address(this)), 0, "test_Fuzz_Sync::4");
         assertEq(token.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::5");
         assertEq(token.balanceOf(address(ccipRouter)), 0, "test_Fuzz_Sync::6");
-        assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::7");
-        assertEq(gho.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::8");
-        assertEq(
-            gho.balanceOf(address(ccipRouter)),
-            amounts.gho,
-            "test_Fuzz_Sync::9"
-        );
         assertEq(
             address(this).balance,
-            balance - amounts.gho,
-            "test_Fuzz_Sync::10"
+            balance - (payInGhoOtoD ? 0 : NATIVE_FEE),
+            "test_Fuzz_Sync::7"
         );
-        assertEq(address(oraclePool).balance, 0, "test_Fuzz_Sync::11");
+        assertEq(address(oraclePool).balance, 0, "test_Fuzz_Sync::8");
         assertEq(
             address(ccipRouter).balance,
-            payInLinkOtoD ? 0 : NATIVE_FEE,
-            "test_Fuzz_Sync::12"
+            payInGhoOtoD ? 0 : NATIVE_FEE,
+            "test_Fuzz_Sync::9"
         );
 
         assertEq(
             ccipRouter.value(),
-            (payInLinkOtoD ? 0 : NATIVE_FEE),
-            "test_Fuzz_Sync::13"
+            payInGhoOtoD ? 0 : NATIVE_FEE,
+            "test_Fuzz_Sync::10"
         );
         assertEq(
             ccipRouter.data(),
             abi.encode(destChainSelector, message),
-            "test_Fuzz_Sync::14"
+            "test_Fuzz_Sync::11"
         );
     }
 
@@ -362,13 +340,13 @@ contract CustomSenderReferralTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
 
-        gho.transfer(address(oraclePool), amountToSync);
+        gho.mint(address(oraclePool), amountToSync);
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 FeeCodec.FeeCodecInvalidDataLength.selector,
                 0,
-                17
+                21
             )
         );
         sender.sync(

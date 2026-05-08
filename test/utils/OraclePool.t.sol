@@ -15,6 +15,9 @@ contract OraclePoolTest is Test {
     MockERC20 public tokenOut;
     MockERC20 public tokenIn;
 
+    uint256 private constant MAX_FEE = 1_000;
+    uint256 private constant MAX_BPS = 10_000;
+
     address public sender = makeAddr("sender");
     uint96 fee = 100;
 
@@ -135,7 +138,7 @@ contract OraclePoolTest is Test {
     }
 
     function test_Fuzz_GetFee(uint96 newFee) public {
-        newFee = uint96(bound(newFee, 0, 1e18));
+        newFee = uint96(bound(newFee, 0, MAX_FEE));
 
         assertEq(oraclePool.getFee(), fee, "test_Fuzz_GetFee::1");
 
@@ -159,7 +162,7 @@ contract OraclePoolTest is Test {
         oraclePool.setFee(newFee);
     }
 
-    function test_Fuzz_Swap(
+    function test_Fuzz_Deposit(
         uint256 price,
         uint256 amountA,
         uint256 amountB
@@ -167,6 +170,9 @@ contract OraclePoolTest is Test {
         price = bound(price, 0.01e18, 100e18);
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
+
+        uint256 feeA = (amountA * fee) / MAX_BPS;
+        uint256 expectedOutA = ((amountA - feeA) * 1e18) / price;
 
         tokenOut.mint(
             address(oraclePool),
@@ -183,41 +189,40 @@ contract OraclePoolTest is Test {
 
         vm.startPrank(sender);
         tokenIn.approve(address(oraclePool), amountA);
-        oraclePool.deposit(alice, amountA, (amountA * (1e18 - fee)) / price);
+        oraclePool.deposit(alice, amountA, expectedOutA);
         vm.stopPrank();
 
         assertEq(
             tokenIn.balanceOf(address(oraclePool)),
             amountA,
-            "test_Fuzz_Swap::1"
+            "test_Fuzz_Deposit::1"
         );
         assertGe(
             tokenOut.balanceOf(alice),
-            (amountA * (1e18 - fee)) / price,
-            "test_Fuzz_Swap::2"
+            expectedOutA,
+            "test_Fuzz_Deposit::2"
         );
+
+        uint256 feeB = (amountB * fee) / MAX_BPS;
+        uint256 expectedOutB = ((amountB - feeB) * 1e18) / price;
 
         vm.prank(bob);
         tokenIn.transfer(address(sender), amountB);
 
         vm.startPrank(sender);
         tokenIn.approve(address(oraclePool), amountB);
-        oraclePool.deposit(bob, amountB, (amountB * (1e18 - fee)) / price);
+        oraclePool.deposit(bob, amountB, expectedOutB);
         vm.stopPrank();
 
         assertEq(
             tokenIn.balanceOf(address(oraclePool)),
             amountA + amountB,
-            "test_Fuzz_Swap::3"
+            "test_Fuzz_Deposit::3"
         );
-        assertGe(
-            tokenOut.balanceOf(bob),
-            (amountB * (1e18 - fee)) / price,
-            "test_Fuzz_Swap::4"
-        );
+        assertGe(tokenOut.balanceOf(bob), expectedOutB, "test_Fuzz_Deposit::4");
     }
 
-    function test_Fuzz_Revert_Swap(
+    function test_Fuzz_Revert_Deposit(
         address msgSender,
         uint256 price,
         uint256 amountIn
@@ -229,7 +234,7 @@ contract OraclePoolTest is Test {
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        uint256 feeAmount = (amountIn * oraclePool.getFee()) / 1e18;
+        uint256 feeAmount = (amountIn * oraclePool.getFee()) / MAX_BPS;
         uint256 amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         vm.prank(msgSender);
@@ -286,7 +291,7 @@ contract OraclePoolTest is Test {
         price = bound(price, price + 1, 200e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        feeAmount = (amountIn * oraclePool.getFee()) / 1e18;
+        feeAmount = (amountIn * oraclePool.getFee()) / MAX_BPS;
         amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         oraclePool.deposit(bob, amountIn, amountOut);
@@ -299,7 +304,7 @@ contract OraclePoolTest is Test {
         vm.stopPrank();
     }
 
-    function test_Revert_Swap() public {
+    function test_Revert_Deposit() public {
         oraclePool.setOracle(address(0));
 
         vm.expectRevert(IOraclePool.OraclePoolZeroAmountIn.selector);
@@ -360,14 +365,16 @@ contract OraclePoolTest is Test {
         );
         oraclePool.pull(address(tokenIn), amount + 1);
 
+        address invalidToken = makeAddr("invalidToken");
+
         vm.prank(sender);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IOraclePool.OraclePoolPullNotAllowed.selector,
-                tokenOut
+                invalidToken
             )
         );
-        oraclePool.pull(address(tokenOut), amount + 1);
+        oraclePool.pull(invalidToken, amount + 1);
 
         vm.prank(msgSender);
         vm.expectRevert(
