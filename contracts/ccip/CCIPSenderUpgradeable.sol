@@ -92,7 +92,7 @@ abstract contract CCIPSenderUpgradeable is
         );
         require(fee <= maxFee, CCIPSenderExceedsMaxFee(fee, maxFee));
 
-        uint256 nativeFee;
+        uint256 nativeFee = 0;
         if (payInGho) {
             if (payer != address(this)) {
                 IERC20(GHO_TOKEN).safeTransferFrom(payer, address(this), fee);

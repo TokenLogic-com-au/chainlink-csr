@@ -22,7 +22,7 @@ contract OraclePool is Ownable, IOraclePool {
     address public immutable override SGHO;
 
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant MAX_FEE = 10_00;
+    uint256 private constant MAX_FEE = 1_000;
     uint256 private constant MAX_BPS = 10_000; // 100%
 
     IOracle private _oracle;
@@ -86,42 +86,21 @@ contract OraclePool is Ownable, IOraclePool {
      */
     function deposit(
         address recipient,
-        uint256 amountIn,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) public virtual override onlySender returns (uint256) {
-        require(amountIn > 0, OraclePoolZeroAmountIn());
-        if (address(_oracle) == address(0)) revert OraclePoolOracleNotSet();
+        _validateInputs(recipient, exactAmountIn, address(_oracle));
 
-        uint256 feeAmount = (amountIn * _fee) / MAX_BPS;
-        uint256 price = _oracle.getLatestAnswer();
-        uint256 lastPrice = _lastPrice;
+        uint256 feeAmount = (exactAmountIn * _fee) / MAX_BPS;
+        uint256 amountOut = ((exactAmountIn - feeAmount) * PRECISION) /
+            _getLatestPrice();
 
-        if (lastPrice != price) {
-            require(
-                lastPrice <= price,
-                OraclePoolInvalidPrice(price, lastPrice)
-            );
+        _validateOutputs(SGHO, amountOut, minAmountOut);
 
-            _lastPrice = price;
-        }
-
-        uint256 amountOut = ((amountIn - feeAmount) * PRECISION) / price;
-
-        require(
-            amountOut >= minAmountOut,
-            OraclePoolInsufficientAmountOut(amountOut, minAmountOut)
-        );
-
-        uint256 availableOut = IERC20(SGHO).balanceOf(address(this));
-        require(
-            amountOut <= availableOut,
-            OraclePoolInsufficientTokenOut(amountOut, availableOut)
-        );
-
-        IERC20(GHO).safeTransferFrom(msg.sender, address(this), amountIn);
+        IERC20(GHO).safeTransferFrom(msg.sender, address(this), exactAmountIn);
         IERC20(SGHO).safeTransfer(recipient, amountOut);
 
-        emit Deposit(recipient, amountIn, amountOut);
+        emit Deposit(recipient, exactAmountIn, amountOut);
 
         return amountOut;
     }
@@ -144,42 +123,22 @@ contract OraclePool is Ownable, IOraclePool {
      */
     function redeem(
         address recipient,
-        uint256 amountIn,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) public virtual override onlySender returns (uint256) {
-        require(amountIn > 0, OraclePoolZeroAmountIn());
-        if (address(_oracle) == address(0)) revert OraclePoolOracleNotSet();
+        _validateInputs(recipient, exactAmountIn, address(_oracle));
 
-        uint256 feeAmount = (amountIn * _fee) / MAX_BPS;
-        uint256 price = _oracle.getLatestAnswer();
-        uint256 lastPrice = _lastPrice;
+        uint256 exchangeRateAmount = (exactAmountIn * _getLatestPrice()) /
+            PRECISION;
+        uint256 feeAmount = (exchangeRateAmount * _fee) / MAX_BPS;
+        uint256 amountOut = exchangeRateAmount - feeAmount;
 
-        if (lastPrice != price) {
-            require(
-                lastPrice <= price,
-                OraclePoolInvalidPrice(price, lastPrice)
-            );
+        _validateOutputs(GHO, amountOut, minAmountOut);
 
-            _lastPrice = price;
-        }
-
-        uint256 amountOut = ((amountIn - feeAmount) * price) / PRECISION;
-
-        require(
-            amountOut >= minAmountOut,
-            OraclePoolInsufficientAmountOut(amountOut, minAmountOut)
-        );
-
-        uint256 availableOut = IERC20(GHO).balanceOf(address(this));
-        require(
-            amountOut <= availableOut,
-            OraclePoolInsufficientTokenOut(amountOut, availableOut)
-        );
-
-        IERC20(SGHO).safeTransferFrom(msg.sender, address(this), amountIn);
+        IERC20(SGHO).safeTransferFrom(msg.sender, address(this), exactAmountIn);
         IERC20(GHO).safeTransfer(recipient, amountOut);
 
-        emit Redeem(recipient, amountIn, amountOut);
+        emit Redeem(recipient, exactAmountIn, amountOut);
 
         return amountOut;
     }
@@ -202,7 +161,7 @@ contract OraclePool is Ownable, IOraclePool {
 
         uint256 available = IERC20(token).balanceOf(address(this));
         require(
-            amount <= available,
+            available >= amount,
             OraclePoolInsufficientToken(token, amount, available)
         );
 
@@ -256,7 +215,7 @@ contract OraclePool is Ownable, IOraclePool {
     }
 
     /**
-     * @dev Returns the fee to be applied to each swap (in 1e18 scale).
+     * @dev Returns the fee to be applied to each swap (in BPS).
      */
     function getFee() public view virtual override returns (uint96) {
         return _fee;
@@ -270,6 +229,22 @@ contract OraclePool is Ownable, IOraclePool {
             msg.sender == SENDER,
             OraclePoolUnauthorizedAccount(msg.sender)
         );
+    }
+
+    function _getLatestPrice() internal returns (uint256) {
+        uint256 price = _oracle.getLatestAnswer();
+        uint256 lastPrice = _lastPrice;
+
+        if (lastPrice != price) {
+            require(
+                price > lastPrice,
+                OraclePoolInvalidPrice(price, lastPrice)
+            );
+
+            _lastPrice = price;
+        }
+
+        return price;
     }
 
     /**
@@ -290,5 +265,32 @@ contract OraclePool is Ownable, IOraclePool {
         _fee = fee;
 
         emit FeeUpdated(fee);
+    }
+
+    function _validateInputs(
+        address recipient,
+        uint256 exactAmountIn,
+        address oracle
+    ) internal pure {
+        require(exactAmountIn > 0, OraclePoolZeroAmountIn());
+        require(recipient != address(0), OraclePoolInvalidRecipient());
+        require(oracle != address(0), OraclePoolOracleNotSet());
+    }
+
+    function _validateOutputs(
+        address token,
+        uint256 amountOut,
+        uint256 minAmountOut
+    ) internal view {
+        require(
+            amountOut >= minAmountOut,
+            OraclePoolInsufficientAmountOut(amountOut, minAmountOut)
+        );
+
+        uint256 availableOut = IERC20(token).balanceOf(address(this));
+        require(
+            availableOut >= amountOut,
+            OraclePoolInsufficientTokenOut(amountOut, availableOut)
+        );
     }
 }

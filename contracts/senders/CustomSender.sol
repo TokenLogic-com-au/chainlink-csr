@@ -31,6 +31,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
 
     bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
 
+    // https://docs.chain.link/ccip/directory/mainnet/chain/mainnet
+    uint64 constant ETHEREUM_CHAIN_SELECTOR = 5009297550715157269;
+
     address public immutable GHO;
     address public immutable SGHO;
 
@@ -63,6 +66,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address ghoToken,
         address ccipRouter,
         address oraclePool,
+        address vault,
         address initialAdmin
     ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
         require(
@@ -75,7 +79,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         GHO = ghoToken;
         SGHO = sghoToken;
 
-        initialize(oraclePool, initialAdmin);
+        initialize(oraclePool, vault, initialAdmin);
     }
 
     /**
@@ -84,12 +88,14 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      */
     function initialize(
         address oraclePool,
+        address vault,
         address initialAdmin
     ) public initializer {
         require(initialAdmin != address(0), CustomSenderInvalidParameters());
 
         _grantRole(DEFAULT_ADMIN_ROLE, initialAdmin);
         _setOraclePool(oraclePool);
+        _setVault(vault);
     }
 
     /**
@@ -105,24 +111,24 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * Emits a {Deposit} event.
      */
     function deposit(
-        uint256 amount,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) public virtual returns (uint256) {
-        require(amount > 0, CustomSenderZeroAmount());
+        require(exactAmountIn > 0, CustomSenderZeroAmount());
 
         address oraclePool = _getCustomSenderStorage().oraclePool;
         require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
 
-        IERC20(GHO).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(GHO).forceApprove(oraclePool, amount);
+        IERC20(GHO).safeTransferFrom(msg.sender, address(this), exactAmountIn);
+        IERC20(GHO).forceApprove(oraclePool, exactAmountIn);
 
         uint256 amountOut = IOraclePool(oraclePool).deposit(
             msg.sender,
-            amount,
+            exactAmountIn,
             minAmountOut
         );
 
-        emit Deposit(msg.sender, GHO, amount, amountOut);
+        emit Deposit(msg.sender, GHO, exactAmountIn, amountOut);
 
         return amountOut;
     }
@@ -176,11 +182,10 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * Emits a {Sync} event.
      */
     function sync(
-        uint64 destChainSelector,
         address token,
         uint256 amount,
-        uint256 minimumAmountOut,
-        bytes calldata feeOtoD,
+        uint256 minAmountOut,
+        bytes calldata feeData,
         bytes calldata extraArgs
     ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
         require(amount > 0, CustomSenderZeroAmount());
@@ -193,17 +198,23 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         IOraclePool(oraclePool).pull(token, amount);
 
         bytes32 messageId = _buildAndSendSync(
-            destChainSelector,
+            ETHEREUM_CHAIN_SELECTOR,
             token,
             amount,
-            minimumAmountOut,
-            feeOtoD,
+            minAmountOut,
+            feeData,
             extraArgs
         );
 
         TokenHelper.refundExcessNative(msg.sender);
 
-        emit Sync(msg.sender, destChainSelector, messageId, token, amount);
+        emit Sync(
+            msg.sender,
+            ETHEREUM_CHAIN_SELECTOR,
+            messageId,
+            token,
+            amount
+        );
 
         return messageId;
     }
@@ -225,8 +236,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _getCustomSenderStorage().vault = vault;
-        emit VaultSet(vault);
+        _setVault(vault);
     }
 
     /**
@@ -295,15 +305,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Pulls `amount` of `token` from `user` and sends them to this contract.
+     * @dev Sets the address of the mainnet vault.
      *
-     * Requirements:
-     *
-     * - `amount` must be greater than 0.
+     * Emits a {VaultSet} event.
      */
-    function _pullFrom(
-        address token,
-        address user,
-        uint256 amount
-    ) internal virtual {}
+    function _setVault(address vault) internal {
+        require(vault != address(0), CustomSenderZeroAddress());
+
+        CustomSenderStorage storage $ = _getCustomSenderStorage();
+        $.vault = vault;
+        emit VaultSet(vault);
+    }
 }

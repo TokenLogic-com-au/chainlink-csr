@@ -16,6 +16,7 @@ interface IOraclePool {
         uint256 amountOut,
         uint256 minAmountOut
     );
+    error OraclePoolInvalidRecipient();
     error OraclePoolPullNotAllowed(address token);
     error OraclePoolOracleNotSet();
     error OraclePoolFeeTooHigh();
@@ -32,7 +33,7 @@ interface IOraclePool {
 
     function deposit(
         address recipient,
-        uint256 amountIn,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) external returns (uint256);
 

@@ -19,8 +19,18 @@ contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
         address ghoToken,
         address ccipRouter,
         address oraclePool,
+        address vault,
         address initialAdmin
-    ) CustomSender(token, ghoToken, ccipRouter, oraclePool, initialAdmin) {}
+    )
+        CustomSender(
+            token,
+            ghoToken,
+            ccipRouter,
+            oraclePool,
+            vault,
+            initialAdmin
+        )
+    {}
 
     /**
      * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
@@ -36,11 +46,11 @@ contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
      * Emits a {FastStake} and {Referral} event.
      */
     function depositReferral(
-        uint256 amount,
+        uint256 exactAmountIn,
         uint256 minAmountOut,
         address referral
     ) public override returns (uint256 amountOut) {
-        amountOut = CustomSender.deposit(amount, minAmountOut);
+        amountOut = CustomSender.deposit(exactAmountIn, minAmountOut);
         emit Referral(msg.sender, referral, amountOut);
     }
 }

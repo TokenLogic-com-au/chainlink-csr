@@ -315,6 +315,171 @@ contract PausableImmutableoraclePoolTest is Test {
         oraclePool.deposit(address(0), 1, 0);
     }
 
+    function test_Fuzz_Redeem(
+        uint256 price,
+        uint256 amountA,
+        uint256 amountB
+    ) public {
+        price = bound(price, 0.01e18, 100e18);
+        amountA = bound(amountA, 0.01e18, 100e18);
+        amountB = bound(amountB, 0.01e18, 100e18);
+
+        uint256 exchangeRateAmountA = (amountA * price) / 1e18;
+        uint256 feeA = (exchangeRateAmountA * fee) / MAX_BPS;
+        uint256 expectedOutA = exchangeRateAmountA - feeA;
+
+        tokenIn.mint(
+            address(oraclePool),
+            ((amountA + amountB) * price) / 1e18
+        );
+
+        dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
+
+        tokenOut.mint(alice, amountA);
+        tokenOut.mint(bob, amountB);
+
+        vm.prank(alice);
+        tokenOut.transfer(address(sender), amountA);
+
+        vm.startPrank(sender);
+        tokenOut.approve(address(oraclePool), amountA);
+        oraclePool.redeem(alice, amountA, expectedOutA);
+        vm.stopPrank();
+
+        assertEq(
+            tokenOut.balanceOf(address(oraclePool)),
+            amountA,
+            "test_Fuzz_Redeem::1"
+        );
+        assertGe(
+            tokenIn.balanceOf(alice),
+            expectedOutA,
+            "test_Fuzz_Redeem::2"
+        );
+
+        uint256 exchangeRateAmountB = (amountB * price) / 1e18;
+        uint256 feeB = (exchangeRateAmountB * fee) / MAX_BPS;
+        uint256 expectedOutB = exchangeRateAmountB - feeB;
+
+        vm.prank(bob);
+        tokenOut.transfer(address(sender), amountB);
+
+        vm.startPrank(sender);
+        tokenOut.approve(address(oraclePool), amountB);
+        oraclePool.redeem(bob, amountB, expectedOutB);
+        vm.stopPrank();
+
+        assertEq(
+            tokenOut.balanceOf(address(oraclePool)),
+            amountA + amountB,
+            "test_Fuzz_Redeem::3"
+        );
+        assertGe(
+            tokenIn.balanceOf(bob),
+            expectedOutB,
+            "test_Fuzz_Redeem::4"
+        );
+    }
+
+    function test_Fuzz_Revert_Redeem(
+        address msgSender,
+        uint256 price,
+        uint256 amountIn
+    ) public {
+        vm.assume(msgSender != sender);
+
+        price = bound(price, 0.01e18, 100e18);
+        amountIn = bound(amountIn, 0.01e18, 100e18);
+
+        dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
+
+        uint256 exchangeRateAmount = (amountIn * price) / 1e18;
+        uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
+            MAX_BPS;
+        uint256 amountOut = exchangeRateAmount - feeAmount;
+
+        vm.prank(msgSender);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOraclePool.OraclePoolUnauthorizedAccount.selector,
+                msgSender
+            )
+        );
+        oraclePool.redeem(address(0), 0, 0);
+
+        vm.startPrank(sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOraclePool.OraclePoolInsufficientAmountOut.selector,
+                amountOut,
+                amountOut + 1
+            )
+        );
+        oraclePool.redeem(alice, amountIn, amountOut + 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOraclePool.OraclePoolInsufficientTokenOut.selector,
+                amountOut,
+                0
+            )
+        );
+        oraclePool.redeem(alice, amountIn, amountOut);
+
+        tokenOut.mint(sender, 3 * amountIn);
+        tokenIn.mint(address(oraclePool), 3 * amountOut);
+
+        tokenOut.approve(address(oraclePool), 3 * amountIn);
+        oraclePool.redeem(alice, amountIn, amountOut);
+
+        dataFeed.set(int256(price - 1), 1, 0, block.timestamp, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOraclePool.OraclePoolInvalidPrice.selector,
+                price - 1,
+                price
+            )
+        );
+        oraclePool.redeem(alice, amountIn, amountOut);
+
+        assertEq(
+            tokenIn.balanceOf(alice),
+            amountOut,
+            "test_Fuzz_Revert_Redeem::1"
+        );
+
+        price = bound(price, price + 1, 200e18);
+        dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
+
+        exchangeRateAmount = (amountIn * price) / 1e18;
+        feeAmount = (exchangeRateAmount * oraclePool.getFee()) / MAX_BPS;
+        amountOut = exchangeRateAmount - feeAmount;
+
+        tokenIn.mint(address(oraclePool), amountOut);
+
+        oraclePool.redeem(bob, amountIn, amountOut);
+
+        assertEq(
+            tokenIn.balanceOf(bob),
+            amountOut,
+            "test_Fuzz_Revert_Redeem::2"
+        );
+        vm.stopPrank();
+    }
+
+    function test_Revert_Redeem() public {
+        vm.expectRevert(IOraclePool.OraclePoolZeroAmountIn.selector);
+        vm.prank(sender);
+        oraclePool.redeem(address(0), 0, 0);
+
+        oraclePool.pause();
+
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(sender);
+        oraclePool.redeem(address(0), 1, 0);
+    }
+
     function test_Fuzz_Pull(uint256 amount) public {
         amount = bound(amount, 0.01e18, 100e18);
 

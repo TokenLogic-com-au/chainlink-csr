@@ -6,6 +6,7 @@ import {ICCIPTrustedSenderUpgradeable} from "./ICCIPTrustedSenderUpgradeable.sol
 interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     error CustomSenderInvalidToken();
     error CustomSenderOraclePoolNotSet();
+    error CustomSenderZeroAddress();
     error CustomSenderZeroAmount();
     error CustomSenderInvalidParameters();
     error CustomSenderInsufficientGas();
@@ -34,7 +35,7 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     event VaultSet(address vault);
 
     function deposit(
-        uint256 amount,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) external returns (uint256);
 
@@ -44,11 +45,10 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     ) external returns (uint256);
 
     function sync(
-        uint64 destChainSelector,
         address token,
         uint256 amount,
-        uint256 minimumAmountOut,
-        bytes calldata feeOtoD,
+        uint256 minAmountOut,
+        bytes calldata feeData,
         bytes calldata extraArgs
     ) external payable returns (bytes32);
 

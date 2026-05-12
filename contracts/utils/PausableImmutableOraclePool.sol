@@ -33,8 +33,10 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
         uint96 fee,
         address initialOwner
     ) OraclePool(sender, gho, sgho, oracle, fee, initialOwner) {
-        if (oracle == address(0))
-            revert PausableImmutableOraclePoolInvalidParameters();
+        require(
+            oracle != address(0),
+            PausableImmutableOraclePoolInvalidParameters()
+        );
     }
 
     /**
@@ -45,10 +47,10 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      */
     function deposit(
         address recipient,
-        uint256 amountIn,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) public override whenNotPaused returns (uint256) {
-        return super.deposit(recipient, amountIn, minAmountOut);
+        return super.deposit(recipient, exactAmountIn, minAmountOut);
     }
 
     /**
@@ -59,10 +61,10 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      */
     function redeem(
         address recipient,
-        uint256 amountIn,
+        uint256 exactAmountIn,
         uint256 minAmountOut
     ) public override whenNotPaused returns (uint256) {
-        return super.redeem(recipient, amountIn, minAmountOut);
+        return super.redeem(recipient, exactAmountIn, minAmountOut);
     }
 
     /**

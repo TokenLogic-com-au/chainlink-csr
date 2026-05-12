@@ -311,9 +311,13 @@ contract OraclePoolTest is Test {
         vm.prank(sender);
         oraclePool.deposit(address(0), 0, 0);
 
-        vm.expectRevert(IOraclePool.OraclePoolOracleNotSet.selector);
+        vm.expectRevert(IOraclePool.OraclePoolInvalidRecipient.selector);
         vm.prank(sender);
         oraclePool.deposit(address(0), 1, 0);
+
+        vm.expectRevert(IOraclePool.OraclePoolOracleNotSet.selector);
+        vm.prank(sender);
+        oraclePool.deposit(alice, 1, 0);
     }
 
     function test_Fuzz_Pull(uint256 amount) public {
