@@ -185,8 +185,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address token,
         uint256 amount,
         uint256 minAmountOut,
-        bytes calldata feeData,
-        bytes calldata extraArgs
+        bytes calldata feeData
     ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
         require(amount > 0, CustomSenderZeroAmount());
         require(token == GHO || token == SGHO, CustomSenderInvalidToken());
@@ -202,8 +201,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             token,
             amount,
             minAmountOut,
-            feeData,
-            extraArgs
+            feeData
         );
 
         TokenHelper.refundExcessNative(msg.sender);
@@ -255,8 +253,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address token,
         uint256 amount,
         uint256 minimumAmountOut,
-        bytes calldata feeOtoD,
-        bytes calldata extraArgs
+        bytes calldata feeData
     ) internal virtual returns (bytes32) {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
 
@@ -266,14 +263,13 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
 
         bytes memory data = abi.encode(
             $.vault,
-            $.oraclePool,
+            bytes32(uint256(uint160($.oraclePool))),
             minimumAmountOut,
-            true,
-            extraArgs
+            true
         );
 
         (uint256 maxFee, bool payInGho, uint256 gasLimit) = FeeCodec.decodeCCIP(
-            feeOtoD
+            feeData
         );
 
         require(

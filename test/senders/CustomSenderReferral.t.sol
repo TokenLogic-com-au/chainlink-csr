@@ -381,10 +381,9 @@ contract CustomSenderReferralTest is Test {
             receiver: receiver,
             data: abi.encode(
                 vault,
-                address(oraclePool),
+                bytes32(uint256(uint160(address(oraclePool)))),
                 uint256(0),
-                true,
-                bytes("")
+                true
             ),
             tokenAmounts: tokenAmounts,
             feeToken: payInGhoOtoD ? address(gho) : address(0),
@@ -401,8 +400,7 @@ contract CustomSenderReferralTest is Test {
             address(gho),
             amountToSync,
             0,
-            feeOtoD,
-            bytes("")
+            feeOtoD
         );
 
         assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
@@ -449,17 +447,17 @@ contract CustomSenderReferralTest is Test {
                 sender.SYNC_ROLE()
             )
         );
-        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0));
 
         sender.grantRole(sender.SYNC_ROLE(), address(this));
 
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.sync(address(gho), 1, 0, new bytes(0), new bytes(0));
+        sender.sync(address(gho), 1, 0, new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
 
@@ -471,7 +469,7 @@ contract CustomSenderReferralTest is Test {
                 0
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0));
 
         amountToSync = bound(amountToSync, 1, 100e18);
 
@@ -484,24 +482,14 @@ contract CustomSenderReferralTest is Test {
                 21
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                FeeCodec.FeeCodecInvalidDataLength.selector,
-                0,
-                21
-            )
-        );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(17));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
         sender.sync(
             address(gho),
             amountToSync,
             0,
-            new bytes(21),
-            new bytes(17)
+            new bytes(21)
         );
     }
 
