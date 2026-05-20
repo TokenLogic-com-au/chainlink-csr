@@ -185,7 +185,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address token,
         uint256 amount,
         uint256 minAmountOut,
-        bytes calldata feeData
+        bytes calldata feeData,
+        bytes calldata extraArgs
     ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
         require(amount > 0, CustomSenderZeroAmount());
         require(token == GHO || token == SGHO, CustomSenderInvalidToken());
@@ -201,7 +202,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             token,
             amount,
             minAmountOut,
-            feeData
+            feeData,
+            extraArgs
         );
 
         TokenHelper.refundExcessNative(msg.sender);
@@ -215,6 +217,32 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         );
 
         return messageId;
+    }
+
+    /**
+     * @dev Allows the admin to withdraw liquidity provided to the oracle pool.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     *
+     * Emits a {WithdrawLiquidity} event.
+     */
+    function withdrawLiquidity(
+        address token,
+        uint256 amount,
+        address recipient
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(amount > 0, CustomSenderZeroAmount());
+        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+        IOraclePool(oraclePool).pull(token, amount);
+
+        IERC20(token).transfer(recipient, amount);
+        emit WithdrawLiquidity(token, oraclePool, amount, recipient);
     }
 
     /**
@@ -253,7 +281,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         address token,
         uint256 amount,
         uint256 minimumAmountOut,
-        bytes calldata feeData
+        bytes calldata feeData,
+        bytes calldata extraArgs
     ) internal virtual returns (bytes32) {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
 
@@ -284,7 +313,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
                 payInGho,
                 maxFee,
                 gasLimit,
-                data
+                data,
+                extraArgs
             );
     }
 

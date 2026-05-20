@@ -315,7 +315,8 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
                 payInLink,
                 maxFee,
                 gasLimit,
-                data
+                data,
+                new bytes(0)
             );
     }
 

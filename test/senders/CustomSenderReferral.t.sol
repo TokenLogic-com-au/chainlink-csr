@@ -30,7 +30,7 @@ contract CustomSenderReferralTest is Test {
 
     uint128 public constant GHO_FEE = 1e18;
     uint128 public constant NATIVE_FEE = 0.01e18;
-    uint256 private constant MAX_BPS = 10_000;
+    uint256 private constant PRECISION = 1e18;
     uint64 public constant ETHEREUM_CHAIN_SELECTOR = 5009297550715157269;
 
     event Referral(
@@ -181,7 +181,7 @@ contract CustomSenderReferralTest is Test {
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
-        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / MAX_BPS;
+        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
         token.mint(address(oraclePool), amountOut);
@@ -274,7 +274,7 @@ contract CustomSenderReferralTest is Test {
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
         uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            MAX_BPS;
+            PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
@@ -400,7 +400,8 @@ contract CustomSenderReferralTest is Test {
             address(gho),
             amountToSync,
             0,
-            feeOtoD
+            feeOtoD,
+            new bytes(0)
         );
 
         assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
@@ -447,17 +448,17 @@ contract CustomSenderReferralTest is Test {
                 sender.SYNC_ROLE()
             )
         );
-        sender.sync(address(gho), 0, 0, new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
         sender.grantRole(sender.SYNC_ROLE(), address(this));
 
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.sync(address(gho), 0, 0, new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.sync(address(gho), 1, 0, new bytes(0));
+        sender.sync(address(gho), 1, 0, new bytes(0), new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
 
@@ -469,7 +470,7 @@ contract CustomSenderReferralTest is Test {
                 0
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
         amountToSync = bound(amountToSync, 1, 100e18);
 
@@ -482,14 +483,15 @@ contract CustomSenderReferralTest is Test {
                 21
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
         sender.sync(
             address(gho),
             amountToSync,
             0,
-            new bytes(21)
+            new bytes(21),
+            new bytes(0)
         );
     }
 

@@ -33,6 +33,12 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     );
     event SupplyOracleSet(address oracle);
     event VaultSet(address vault);
+    event WithdrawLiquidity(
+        address indexed token,
+        address indexed oraclePool,
+        uint256 amount,
+        address recipient
+    );
 
     function deposit(
         uint256 exactAmountIn,
@@ -48,8 +54,15 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         address token,
         uint256 amount,
         uint256 minAmountOut,
-        bytes calldata feeData
+        bytes calldata feeData,
+        bytes calldata extraArgs
     ) external payable returns (bytes32);
+
+    function withdrawLiquidity(
+        address token,
+        uint256 amount,
+        address recipient
+    ) external;
 
     function setOraclePool(address oraclePool) external;
 

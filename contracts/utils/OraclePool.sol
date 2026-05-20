@@ -22,8 +22,6 @@ contract OraclePool is Ownable, IOraclePool {
     address public immutable override SGHO;
 
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant MAX_FEE = 1_000;
-    uint256 private constant MAX_BPS = 10_000; // 100%
 
     IOracle private _oracle;
     uint96 private _fee;
@@ -91,7 +89,7 @@ contract OraclePool is Ownable, IOraclePool {
     ) public virtual override onlySender returns (uint256) {
         _validateInputs(recipient, exactAmountIn, address(_oracle));
 
-        uint256 feeAmount = (exactAmountIn * _fee) / MAX_BPS;
+        uint256 feeAmount = (exactAmountIn * _fee) / PRECISION;
         uint256 amountOut = ((exactAmountIn - feeAmount) * PRECISION) /
             _getLatestPrice();
 
@@ -130,7 +128,7 @@ contract OraclePool is Ownable, IOraclePool {
 
         uint256 exchangeRateAmount = (exactAmountIn * _getLatestPrice()) /
             PRECISION;
-        uint256 feeAmount = (exchangeRateAmount * _fee) / MAX_BPS;
+        uint256 feeAmount = (exchangeRateAmount * _fee) / PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         _validateOutputs(GHO, amountOut, minAmountOut);
@@ -260,7 +258,7 @@ contract OraclePool is Ownable, IOraclePool {
      * @dev Sets the fee to be applied to each swap (in 1e18 scale).
      */
     function _setFee(uint96 fee) internal virtual {
-        require(fee <= MAX_FEE, OraclePoolFeeTooHigh());
+        require(fee <= PRECISION, OraclePoolFeeTooHigh());
 
         _fee = fee;
 

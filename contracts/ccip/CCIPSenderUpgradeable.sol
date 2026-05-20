@@ -59,21 +59,24 @@ abstract contract CCIPSenderUpgradeable is
         bool payInGho,
         uint256 maxFee,
         uint256 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes memory extraArgs
     ) internal virtual returns (bytes32) {
         require(receiver.length > 0, CCIPSenderEmptyReceiver());
 
-        uint256 length = tokenAmounts.length;
-        for (uint256 i = 0; i < length; ++i) {
-            address token = tokenAmounts[i].token;
-            uint256 amount = tokenAmounts[i].amount;
+        {
+            uint256 length = tokenAmounts.length;
+            for (uint256 i = 0; i < length; ++i) {
+                address token = tokenAmounts[i].token;
+                uint256 amount = tokenAmounts[i].amount;
 
-            require(
-                amount > 0 && token != address(0),
-                CCIPSenderInvalidTokenAmount()
-            );
+                require(
+                    amount > 0 && token != address(0),
+                    CCIPSenderInvalidTokenAmount()
+                );
 
-            IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
+                IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
+            }
         }
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
@@ -81,25 +84,34 @@ abstract contract CCIPSenderUpgradeable is
             data: data,
             tokenAmounts: tokenAmounts,
             feeToken: payInGho ? GHO_TOKEN : address(0),
-            extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV1({gasLimit: gasLimit})
-            )
+            extraArgs: extraArgs.length > 0
+                ? extraArgs
+                : Client._argsToBytes(
+                    Client.EVMExtraArgsV1({gasLimit: gasLimit})
+                )
         });
 
-        uint256 fee = IRouterClient(CCIP_ROUTER).getFee(
-            destChainSelector,
-            message
-        );
-        require(fee <= maxFee, CCIPSenderExceedsMaxFee(fee, maxFee));
-
         uint256 nativeFee = 0;
-        if (payInGho) {
-            if (payer != address(this)) {
-                IERC20(GHO_TOKEN).safeTransferFrom(payer, address(this), fee);
+
+        {
+            uint256 fee = IRouterClient(CCIP_ROUTER).getFee(
+                destChainSelector,
+                message
+            );
+            require(fee <= maxFee, CCIPSenderExceedsMaxFee(fee, maxFee));
+
+            if (payInGho) {
+                if (payer != address(this)) {
+                    IERC20(GHO_TOKEN).safeTransferFrom(
+                        payer,
+                        address(this),
+                        fee
+                    );
+                }
+                IERC20(GHO_TOKEN).safeIncreaseAllowance(CCIP_ROUTER, fee);
+            } else {
+                nativeFee = fee;
             }
-            IERC20(GHO_TOKEN).safeIncreaseAllowance(CCIP_ROUTER, fee);
-        } else {
-            nativeFee = fee;
         }
 
         return

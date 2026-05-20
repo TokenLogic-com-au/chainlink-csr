@@ -109,7 +109,8 @@ abstract contract CCIPTrustedSenderUpgradeable is
         bool payInGho,
         uint256 maxFee,
         uint256 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes memory extraArgs
     ) internal virtual returns (bytes32) {
         bytes memory receiver = getReceiver(destChainSelector);
         require(
@@ -126,7 +127,8 @@ abstract contract CCIPTrustedSenderUpgradeable is
                 payInGho,
                 maxFee,
                 gasLimit,
-                data
+                data,
+                extraArgs
             );
     }
 }

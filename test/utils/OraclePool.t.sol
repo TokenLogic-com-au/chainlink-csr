@@ -15,11 +15,10 @@ contract OraclePoolTest is Test {
     MockERC20 public tokenOut;
     MockERC20 public tokenIn;
 
-    uint256 private constant MAX_FEE = 1_000;
-    uint256 private constant MAX_BPS = 10_000;
+    uint256 private constant PRECISION = 1e18;
 
     address public sender = makeAddr("sender");
-    uint96 fee = 100;
+    uint96 fee = 0.01e18;
 
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
@@ -138,7 +137,7 @@ contract OraclePoolTest is Test {
     }
 
     function test_Fuzz_GetFee(uint96 newFee) public {
-        newFee = uint96(bound(newFee, 0, MAX_FEE));
+        newFee = uint96(bound(newFee, 0, PRECISION));
 
         assertEq(oraclePool.getFee(), fee, "test_Fuzz_GetFee::1");
 
@@ -171,7 +170,7 @@ contract OraclePoolTest is Test {
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
 
-        uint256 feeA = (amountA * fee) / MAX_BPS;
+        uint256 feeA = (amountA * fee) / PRECISION;
         uint256 expectedOutA = ((amountA - feeA) * 1e18) / price;
 
         tokenOut.mint(
@@ -203,7 +202,7 @@ contract OraclePoolTest is Test {
             "test_Fuzz_Deposit::2"
         );
 
-        uint256 feeB = (amountB * fee) / MAX_BPS;
+        uint256 feeB = (amountB * fee) / PRECISION;
         uint256 expectedOutB = ((amountB - feeB) * 1e18) / price;
 
         vm.prank(bob);
@@ -234,7 +233,7 @@ contract OraclePoolTest is Test {
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        uint256 feeAmount = (amountIn * oraclePool.getFee()) / MAX_BPS;
+        uint256 feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
         uint256 amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         vm.prank(msgSender);
@@ -291,7 +290,7 @@ contract OraclePoolTest is Test {
         price = bound(price, price + 1, 200e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        feeAmount = (amountIn * oraclePool.getFee()) / MAX_BPS;
+        feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
         amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         oraclePool.deposit(bob, amountIn, amountOut);

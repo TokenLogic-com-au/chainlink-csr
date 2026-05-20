@@ -27,7 +27,7 @@ contract CustomSenderTest is Test {
 
     address public vault = makeAddr("vault");
 
-    uint256 private constant MAX_BPS = 10_000;
+    uint256 private constant PRECISION = 1e18;
     uint96 public constant GHO_FEE = 500;
     uint96 public constant NATIVE_FEE = 1_000;
     uint64 public constant ETHEREUM_CHAIN_SELECTOR = 5009297550715157269;
@@ -230,7 +230,7 @@ contract CustomSenderTest is Test {
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
-        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / MAX_BPS;
+        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
         sgho.mint(address(oraclePool), amountOut);
@@ -316,7 +316,7 @@ contract CustomSenderTest is Test {
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
         uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            MAX_BPS;
+            PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
@@ -442,7 +442,8 @@ contract CustomSenderTest is Test {
             address(gho),
             amountToSync,
             0,
-            feeOtoD
+            feeOtoD,
+            new bytes(0)
         );
 
         assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Sync::1");
@@ -489,22 +490,22 @@ contract CustomSenderTest is Test {
                 sender.SYNC_ROLE()
             )
         );
-        sender.sync(address(gho), 0, 0, new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
         sender.grantRole(sender.SYNC_ROLE(), address(this));
 
         sender.setOraclePool(address(0));
 
         vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.sync(address(gho), 0, 0, new bytes(0));
+        sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.sync(address(gho), 1, 0, new bytes(0));
+        sender.sync(address(gho), 1, 0, new bytes(0), new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
 
         vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.sync(address(1), amountToSync, 0, new bytes(0));
+        sender.sync(address(1), amountToSync, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -514,7 +515,7 @@ contract CustomSenderTest is Test {
                 0
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
         amountToSync = bound(amountToSync, 1, 100e18);
 
@@ -527,15 +528,113 @@ contract CustomSenderTest is Test {
                 21
             )
         );
-        sender.sync(address(gho), amountToSync, 0, new bytes(0));
+        sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
-        sender.sync(
+        sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
+    }
+
+    function test_Fuzz_WithdrawLiquidity(uint256 amount) public {
+        amount = bound(amount, 1, 100_000e18);
+
+        address recipient = makeAddr("recipient");
+
+        gho.mint(address(oraclePool), amount);
+        sgho.mint(address(oraclePool), amount);
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.WithdrawLiquidity(
             address(gho),
-            amountToSync,
-            0,
-            new bytes(21)
+            address(oraclePool),
+            amount,
+            recipient
         );
+        sender.withdrawLiquidity(address(gho), amount, recipient);
+
+        assertEq(
+            gho.balanceOf(recipient),
+            amount,
+            "test_Fuzz_WithdrawLiquidity::1"
+        );
+        assertEq(
+            gho.balanceOf(address(oraclePool)),
+            0,
+            "test_Fuzz_WithdrawLiquidity::2"
+        );
+        assertEq(
+            gho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_WithdrawLiquidity::3"
+        );
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.WithdrawLiquidity(
+            address(sgho),
+            address(oraclePool),
+            amount,
+            recipient
+        );
+        sender.withdrawLiquidity(address(sgho), amount, recipient);
+
+        assertEq(
+            sgho.balanceOf(recipient),
+            amount,
+            "test_Fuzz_WithdrawLiquidity::4"
+        );
+        assertEq(
+            sgho.balanceOf(address(oraclePool)),
+            0,
+            "test_Fuzz_WithdrawLiquidity::5"
+        );
+        assertEq(
+            sgho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_WithdrawLiquidity::6"
+        );
+    }
+
+    function test_Fuzz_Revert_WithdrawLiquidity(
+        address caller,
+        uint256 amount
+    ) public {
+        vm.assume(caller != address(this));
+        amount = bound(amount, 1, 100_000e18);
+
+        address recipient = makeAddr("recipient");
+        bytes32 adminRole = sender.DEFAULT_ADMIN_ROLE();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                caller,
+                adminRole
+            )
+        );
+        vm.prank(caller);
+        sender.withdrawLiquidity(address(gho), amount, recipient);
+
+        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        sender.withdrawLiquidity(address(gho), 0, recipient);
+
+        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
+        sender.withdrawLiquidity(address(1), amount, recipient);
+
+        sender.setOraclePool(address(0));
+
+        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        sender.withdrawLiquidity(address(gho), amount, recipient);
+
+        sender.setOraclePool(address(oraclePool));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOraclePool.OraclePoolInsufficientToken.selector,
+                address(gho),
+                amount,
+                0
+            )
+        );
+        sender.withdrawLiquidity(address(gho), amount, recipient);
     }
 
     receive() external payable {}
