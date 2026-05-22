@@ -9,8 +9,8 @@ import {OraclePool} from "./OraclePool.sol";
  * @title PausableImmutableOraclePool Contract
  * @dev An OraclePool contract that is pausable and immutable.
  * The oracle and the fee cannot be changed after deployment.
- * The owner can pause and unpause the contract, which will prevent the `swap` and
- * `pull` functions from being called.
+ * The owner can pause and unpause the contract, which will prevent the `deposit`,
+ * `redeem`, and `pull` functions from being called.
  */
 contract PausableImmutableOraclePool is OraclePool, Pausable {
     error PausableImmutableOraclePoolImmutable();
@@ -73,7 +73,7 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      *
      * Requirements:
      *
-     * - `token` must be equal to `TOKEN_IN`.
+     * - `token` must be equal to one of `GHO` or `SGHO`.
      * - The `amount` of `token` to be pulled must be less than or equal to the amount of `token` available in the contract.
      *
      * Emits a {Pull} event.

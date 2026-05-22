@@ -26,10 +26,10 @@ abstract contract CCIPDefensiveReceiverUpgradeable is
 {
     using SafeERC20 for IERC20;
 
-    /* The minimum gas to store the failed message. */
+    /// @dev The minimum gas to store the failed message.
     uint32 public constant override MIN_FAILED_MESSAGE_GAS = 45_000;
 
-    /* @custom:storage-location erc7201:ccip-csr.storage.CCIPDefensiveReceiver */
+    /// @custom:storage-location erc7201:ccip-csr.storage.CCIPDefensiveReceiver
     struct CCIPDefensiveReceiverStorage {
         mapping(uint64 destChainSelector => bytes sender) senders;
         mapping(bytes32 messageId => bytes32 hash) failedHashes;

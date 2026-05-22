@@ -22,7 +22,7 @@ abstract contract CCIPTrustedSenderUpgradeable is
 {
     using SafeERC20 for IERC20;
 
-    /* @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender */
+    /// @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender
     struct CCIPTrustedSenderStorage {
         mapping(uint64 destChainSelector => bytes receiver) receivers;
     }
@@ -91,7 +91,7 @@ abstract contract CCIPTrustedSenderUpgradeable is
     /**
      * @dev Sends a message to the CCIP router.
      * This function will calculate the exact fee required for the message and send it to the router.
-     * The fee can be paid in LINK or native token.
+     * The fee can be paid in GHO or native token.
      * It is not necessary to approve the ccip router before calling this function.
      *
      * Requirements:

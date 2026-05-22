@@ -43,13 +43,12 @@ abstract contract CCIPSenderUpgradeable is
      *
      * Requirements:
      *
-     * - `receiver` must be a non-empty array.
+     * - `receiver` must not be empty.
      * - `maxFee` must be greater than or equal to the fee for the message.
-     * - if `payInGho` is `true`, `msg.sender` must have approved the contract to transfer `maxFee` of GHO. Else,
-     *   `msg.value` must be greater than or equal to the fee for the message.
      * - each token in `tokenAmounts` must have been transferred to the contract.
-     * - payer must have approved the contract to transfer the fee in GHO if `payInGho` is `true`, unless `payer` is
-     *   the contract itself, in which case the contract must have enough GHO.
+     * - if `payInGho` is `true`: `payer` must have approved this contract to transfer the fee in GHO, unless
+     *   `payer` is the contract itself, in which case the contract must hold at least the fee in GHO.
+     * - if `payInGho` is `false`: `msg.value` must be greater than or equal to the fee.
      */
     function _ccipSendTo(
         uint64 destChainSelector,

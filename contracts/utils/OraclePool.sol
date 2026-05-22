@@ -9,10 +9,10 @@ import {IOraclePool} from "../interfaces/IOraclePool.sol";
 
 /**
  * @title OraclePool Contract
- * @dev A contract that allows to swap `TOKEN_IN` for `TOKEN_OUT` using the exchange rate provided by an oracle.
+ * @dev A contract that allows to swap `GHO` for `sGHO` and `sGHO` to `GHO` using the exchange rate provided by an oracle.
  * This contract is not compatible with transfer tax tokens.
  * The `SENDER` account is the only account allowed to call the swap and pull functions.
- * It is expected that it takes care of rebalancing the tokens in the contract as this contract only allows to swap `TOKEN_IN` for `TOKEN_OUT`.
+ * It is expected that it takes care of rebalancing the tokens in the contract.
  */
 contract OraclePool is Ownable, IOraclePool {
     using SafeERC20 for IERC20;
@@ -105,7 +105,7 @@ contract OraclePool is Ownable, IOraclePool {
 
     /**
      * @dev Swaps `amountIn` of `sGHO` for at least `minAmountOut` of `GHO` and sends them to `recipient`.
-     * It uses the oracle to get the price of `SGHO` in `GHO`. A fee is applied to the amount of tokens to be swapped.
+     * It uses the oracle to get the price of `sGHO` in `GHO`. A fee is applied to the amount of tokens to be swapped.
      * The fee is kept in this contract and will be used to pay for the gas price and the potential exchange rate deviation when the
      * `SGHO` is exchanged for `GHO` by the sender.
      *
@@ -146,7 +146,7 @@ contract OraclePool is Ownable, IOraclePool {
      *
      * Requirements:
      *
-     * - `token` must be equal to `TOKEN_IN`.
+     * - `token` must be equal one of `GHO` or `sGHO`.
      * - The `amount` of `token` to be pulled must be less than or equal to the amount of `token` available in the contract.
      *
      * Emits a {Pull} event.
@@ -213,7 +213,7 @@ contract OraclePool is Ownable, IOraclePool {
     }
 
     /**
-     * @dev Returns the fee to be applied to each swap (in BPS).
+     * @dev Returns the fee to be applied to each swap (in 1e18 scale).
      */
     function getFee() public view virtual override returns (uint96) {
         return _fee;
@@ -246,7 +246,7 @@ contract OraclePool is Ownable, IOraclePool {
     }
 
     /**
-     * @dev Sets the oracle contract. Can be set to the zero address to prevent the swap function from being called.
+     * @dev Sets the oracle contract. Can be set to the zero address to prevent the deposit and redeem functions from being called.
      */
     function _setOracle(IOracle oracle) internal virtual {
         _oracle = oracle;

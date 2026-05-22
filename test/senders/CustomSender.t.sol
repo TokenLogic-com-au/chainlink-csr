@@ -224,6 +224,78 @@ contract CustomSenderTest is Test {
         sender.setOraclePool(oraclePool1);
     }
 
+    function test_SetOraclePool_ApprovalsAndEvent() public {
+        address newPool = makeAddr("newPool");
+
+        assertEq(
+            gho.allowance(address(sender), address(oraclePool)),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::1"
+        );
+        assertEq(
+            sgho.allowance(address(sender), address(oraclePool)),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::2"
+        );
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolSet(address(oraclePool), newPool);
+        sender.setOraclePool(newPool);
+
+        assertEq(
+            gho.allowance(address(sender), address(oraclePool)),
+            0,
+            "test_SetOraclePool_ApprovalsAndEvent::3"
+        );
+        assertEq(
+            sgho.allowance(address(sender), address(oraclePool)),
+            0,
+            "test_SetOraclePool_ApprovalsAndEvent::4"
+        );
+        assertEq(
+            gho.allowance(address(sender), newPool),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::5"
+        );
+        assertEq(
+            sgho.allowance(address(sender), newPool),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::6"
+        );
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolSet(newPool, address(0));
+        sender.setOraclePool(address(0));
+
+        assertEq(
+            gho.allowance(address(sender), newPool),
+            0,
+            "test_SetOraclePool_ApprovalsAndEvent::7"
+        );
+        assertEq(
+            sgho.allowance(address(sender), newPool),
+            0,
+            "test_SetOraclePool_ApprovalsAndEvent::8"
+        );
+
+        address anotherPool = makeAddr("anotherPool");
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolSet(address(0), anotherPool);
+        sender.setOraclePool(anotherPool);
+
+        assertEq(
+            gho.allowance(address(sender), anotherPool),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::9"
+        );
+        assertEq(
+            sgho.allowance(address(sender), anotherPool),
+            type(uint256).max,
+            "test_SetOraclePool_ApprovalsAndEvent::10"
+        );
+    }
+
     function test_Fuzz_Deposit(uint256 price, uint256 amountIn) public {
         price = bound(price, 0.001e18, 100e18);
         amountIn = bound(amountIn, 1, 100e18);
@@ -532,109 +604,6 @@ contract CustomSenderTest is Test {
 
         vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
-    }
-
-    function test_Fuzz_WithdrawLiquidity(uint256 amount) public {
-        amount = bound(amount, 1, 100_000e18);
-
-        address recipient = makeAddr("recipient");
-
-        gho.mint(address(oraclePool), amount);
-        sgho.mint(address(oraclePool), amount);
-
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.WithdrawLiquidity(
-            address(gho),
-            address(oraclePool),
-            amount,
-            recipient
-        );
-        sender.withdrawLiquidity(address(gho), amount, recipient);
-
-        assertEq(
-            gho.balanceOf(recipient),
-            amount,
-            "test_Fuzz_WithdrawLiquidity::1"
-        );
-        assertEq(
-            gho.balanceOf(address(oraclePool)),
-            0,
-            "test_Fuzz_WithdrawLiquidity::2"
-        );
-        assertEq(
-            gho.balanceOf(address(sender)),
-            0,
-            "test_Fuzz_WithdrawLiquidity::3"
-        );
-
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.WithdrawLiquidity(
-            address(sgho),
-            address(oraclePool),
-            amount,
-            recipient
-        );
-        sender.withdrawLiquidity(address(sgho), amount, recipient);
-
-        assertEq(
-            sgho.balanceOf(recipient),
-            amount,
-            "test_Fuzz_WithdrawLiquidity::4"
-        );
-        assertEq(
-            sgho.balanceOf(address(oraclePool)),
-            0,
-            "test_Fuzz_WithdrawLiquidity::5"
-        );
-        assertEq(
-            sgho.balanceOf(address(sender)),
-            0,
-            "test_Fuzz_WithdrawLiquidity::6"
-        );
-    }
-
-    function test_Fuzz_Revert_WithdrawLiquidity(
-        address caller,
-        uint256 amount
-    ) public {
-        vm.assume(caller != address(this));
-        amount = bound(amount, 1, 100_000e18);
-
-        address recipient = makeAddr("recipient");
-        bytes32 adminRole = sender.DEFAULT_ADMIN_ROLE();
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                caller,
-                adminRole
-            )
-        );
-        vm.prank(caller);
-        sender.withdrawLiquidity(address(gho), amount, recipient);
-
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.withdrawLiquidity(address(gho), 0, recipient);
-
-        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.withdrawLiquidity(address(1), amount, recipient);
-
-        sender.setOraclePool(address(0));
-
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.withdrawLiquidity(address(gho), amount, recipient);
-
-        sender.setOraclePool(address(oraclePool));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IOraclePool.OraclePoolInsufficientToken.selector,
-                address(gho),
-                amount,
-                0
-            )
-        );
-        sender.withdrawLiquidity(address(gho), amount, recipient);
     }
 
     receive() external payable {}

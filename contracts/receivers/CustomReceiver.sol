@@ -25,7 +25,7 @@ abstract contract CustomReceiver is CCIPDefensiveReceiverUpgradeable, ICustomRec
 
     address public immutable WNATIVE;
 
-    /* @custom:storage-location erc7201:ccip-csr.storage.CustomReceiver */
+    /// @custom:storage-location erc7201:ccip-csr.storage.CustomReceiver
     struct CustomReceiverStorage {
         mapping(uint64 destChainSelector => address adapter) adapters;
     }

@@ -6,19 +6,16 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {CCIPTrustedSenderUpgradeable, Client} from "../ccip/CCIPTrustedSenderUpgradeable.sol";
 import {CCIPSenderUpgradeable, CCIPBaseUpgradeable} from "../ccip/CCIPSenderUpgradeable.sol";
 import {TokenHelper} from "../libraries/TokenHelper.sol";
-import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {FeeCodec} from "../libraries/FeeCodec.sol";
 import {IOraclePool} from "../interfaces/IOraclePool.sol";
 import {ICustomSender} from "../interfaces/ICustomSender.sol";
 
 /**
  * @title CustomSender Contract
- * @dev A contract that allows users to stake (W)Native to receive a staked token that isn't native to this chain.
- * The slow staking function allows users to send (W)Native to the receiver contract on the main chain, mint the native staked
- * token and send it back to the user on this chain.
- * The fast staking function allows users to swap (W)Native for the native staked token using an oracle pool.
- * Then an operator can synchronize this chain by sending the native tokens to the receiver contract on the main chain,
- * mint the native staked token and send it back to the oracle pool on this chain.
+ * @dev A contract that allows users to swap GHO for sGHO (and vice versa) on deployed chain using a local oracle pool.
+ * Users call `deposit` to swap GHO for sGHO, or `redeem` to swap sGHO for GHO, with the rate provided by an oracle.
+ * An operator with the `SYNC_ROLE` can call `sync` to send tokens from the oracle pool to the mainnet vault via CCIP,
+ * rebalancing the pool so it can continue to honor swaps.
  * This contract can be deployed directly or used as an implementation for a proxy contract (upgradable or not).
  *
  * The contract uses the EIP-7201 to prevent storage collisions.
@@ -26,7 +23,7 @@ import {ICustomSender} from "../interfaces/ICustomSender.sol";
 contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     using SafeERC20 for IERC20;
 
-    /* The minimum gas to process the message. */
+    /// @dev The minimum gas to process the message.
     uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
 
     bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
@@ -37,7 +34,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     address public immutable GHO;
     address public immutable SGHO;
 
-    /* @custom:storage-location erc7201:ccip-csr.storage.CustomSender */
+    /// @custom:storage-location erc7201:ccip-csr.storage.CustomSender
     struct CustomSenderStorage {
         address oraclePool;
         address vault;
@@ -58,7 +55,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Sets the immutable values for {TOKEN}, {GHO_TOKEN}, and {CCIP_ROUTER} and the initial values for
+     * @dev Sets the immutable values for {SGHO_TOKEN}, {GHO_TOKEN}, and {CCIP_ROUTER} and the initial values for
      * the oracle pool and the admin role.
      */
     constructor(
@@ -169,15 +166,17 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Allows the operator to synchronize this chain by sending the native tokens to the receiver contract on the main chain,
-     * mint the native staked token and send it back to the oracle pool on this chain.
-     * The operator has to pay the gas fee for the CCIP message and for the way back.
-     * It is very important that the `feeOtoD` is sufficient to cover the gas fee for the way back, or the tokens may
-     * get stuck depending on the bridge used for the way back.
+     * @dev Allows an operator to rebalance the oracle pool by sending the pulled tokens to the mainnet vault via CCIP.
+     * The CCIP fee is paid by `msg.sender` and can be paid in GHO or in native token, as encoded in `feeData`.
+     * Excess native value sent with the call is refunded to `msg.sender`.
      *
      * Requirements:
      *
      * - `msg.sender` must have the `SYNC_ROLE`.
+     * - `amount` must be greater than 0.
+     * - `token` must be either `GHO` or `SGHO`.
+     * - The oracle pool must be set.
+     * - The gas limit encoded in `feeData` must be at least `MIN_PROCESS_MESSAGE_GAS`.
      *
      * Emits a {Sync} event.
      */
@@ -220,34 +219,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Allows the admin to withdraw liquidity provided to the oracle pool.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
-     *
-     * Emits a {WithdrawLiquidity} event.
-     */
-    function withdrawLiquidity(
-        address token,
-        uint256 amount,
-        address recipient
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(amount > 0, CustomSenderZeroAmount());
-        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
-
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-
-        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
-        IOraclePool(oraclePool).pull(token, amount);
-
-        IERC20(token).transfer(recipient, amount);
-        emit WithdrawLiquidity(token, oraclePool, amount, recipient);
-    }
-
-    /**
      * @dev Sets the address of the oracle pool.
-     * It also approves the maximum amount of WNative to the oracle pool and revokes the approval from the previous oracle pool.
+     * It also approves the maximum amount of `GHO` to the oracle pool and revokes the approval from the previous oracle pool.
+     * It also approves the maximum amount of `SGHO` to the oracle pool and revokes the approval from the previous oracle pool.
      *
      * Requirements:
      *
@@ -261,6 +235,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         _setOraclePool(oraclePool);
     }
 
+    /**
+     * @dev Sets the address of the mainnet vault.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     *
+     * Emits a {VaultSet} event.
+     */
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setVault(vault);
     }
@@ -272,6 +255,9 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return _getCustomSenderStorage().oraclePool;
     }
 
+    /**
+     * @dev Returns the address of the mainnet vault.
+     */
     function getVault() public view returns (address) {
         return _getCustomSenderStorage().vault;
     }
@@ -325,9 +311,21 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      */
     function _setOraclePool(address oraclePool) internal virtual {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
+        address oldOracle = $.oraclePool;
+
         $.oraclePool = oraclePool;
 
-        emit OraclePoolSet(oraclePool);
+        if (oldOracle != address(0)) {
+            IERC20(GHO).approve(oldOracle, 0);
+            IERC20(SGHO).approve(oldOracle, 0);
+        }
+
+        if (oraclePool != address(0)) {
+            IERC20(GHO).approve(oraclePool, type(uint256).max);
+            IERC20(SGHO).approve(oraclePool, type(uint256).max);
+        }
+
+        emit OraclePoolSet(oldOracle, oraclePool);
     }
 
     /**
