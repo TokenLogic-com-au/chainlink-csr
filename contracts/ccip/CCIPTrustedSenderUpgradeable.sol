@@ -16,10 +16,13 @@ import {ICCIPTrustedSenderUpgradeable} from "../interfaces/ICCIPTrustedSenderUpg
  *
  * The contract uses the EIP-7201 to prevent storage collisions.
  */
-abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTrustedSenderUpgradeable {
+abstract contract CCIPTrustedSenderUpgradeable is
+    CCIPSenderUpgradeable,
+    ICCIPTrustedSenderUpgradeable
+{
     using SafeERC20 for IERC20;
 
-    /* @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender */
+    /// @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender
     struct CCIPTrustedSenderStorage {
         mapping(uint64 destChainSelector => bytes receiver) receivers;
     }
@@ -28,7 +31,11 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
     bytes32 private constant CCIPTrustedSenderStorageLocation =
         0x0c7e84f56285f1b5532fe17ac0ab4310ac3914a71fe91e1c6ec35a7f3d15de00;
 
-    function _getCCIPTrustedSenderStorage() private pure returns (CCIPTrustedSenderStorage storage $) {
+    function _getCCIPTrustedSenderStorage()
+        private
+        pure
+        returns (CCIPTrustedSenderStorage storage $)
+    {
         assembly {
             $.slot := CCIPTrustedSenderStorageLocation
         }
@@ -41,7 +48,9 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
     /**
      * @dev Returns the receiver for the destination chain selector.
      */
-    function getReceiver(uint64 destChainSelector) public view virtual override returns (bytes memory) {
+    function getReceiver(
+        uint64 destChainSelector
+    ) public view virtual override returns (bytes memory) {
         return _getCCIPTrustedSenderStorage().receivers[destChainSelector];
     }
 
@@ -55,12 +64,10 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
      *
      * Emits a {ReceiverSet} event.
      */
-    function setReceiver(uint64 destChainSelector, bytes memory receiver)
-        public
-        virtual
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function setReceiver(
+        uint64 destChainSelector,
+        bytes memory receiver
+    ) public virtual override onlyRole(DEFAULT_ADMIN_ROLE) {
         _setReceiver(destChainSelector, receiver);
     }
 
@@ -70,7 +77,10 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
      *
      * Emits a {ReceiverSet} event.
      */
-    function _setReceiver(uint64 destChainSelector, bytes memory receiver) internal virtual {
+    function _setReceiver(
+        uint64 destChainSelector,
+        bytes memory receiver
+    ) internal virtual {
         CCIPTrustedSenderStorage storage $ = _getCCIPTrustedSenderStorage();
 
         $.receivers[destChainSelector] = receiver;
@@ -81,7 +91,7 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
     /**
      * @dev Sends a message to the CCIP router.
      * This function will calculate the exact fee required for the message and send it to the router.
-     * The fee can be paid in LINK or native token.
+     * The fee can be paid in GHO or native token.
      * It is not necessary to approve the ccip router before calling this function.
      *
      * Requirements:
@@ -90,20 +100,35 @@ abstract contract CCIPTrustedSenderUpgradeable is CCIPSenderUpgradeable, ICCIPTr
      * - `tokenAmounts` must not contain any elements with zero amount or zero token address.
      * - `destChainSelector` must be a supported chain.
      * - `maxFee` must be greater than or equal to the fee for the message.
-     * - if `payInLink` is `true`, `msg.sender` must have approved the contract to transfer `maxFee` of LINK. Else,
+     * - if `payInGho` is `true`, `msg.sender` must have approved the contract to transfer `maxFee` of GHO. Else,
      *   `msg.value` must be greater than or equal to the fee for the message.
      */
     function _ccipSend(
         uint64 destChainSelector,
         Client.EVMTokenAmount[] memory tokenAmounts,
-        bool payInLink,
+        bool payInGho,
         uint256 maxFee,
         uint256 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes memory extraArgs
     ) internal virtual returns (bytes32) {
         bytes memory receiver = getReceiver(destChainSelector);
-        if (receiver.length == 0) revert CCIPTrustedSenderUnsupportedChain(destChainSelector);
+        require(
+            receiver.length > 0,
+            CCIPTrustedSenderUnsupportedChain(destChainSelector)
+        );
 
-        return _ccipSendTo(destChainSelector, msg.sender, receiver, tokenAmounts, payInLink, maxFee, gasLimit, data);
+        return
+            _ccipSendTo(
+                destChainSelector,
+                msg.sender,
+                receiver,
+                tokenAmounts,
+                payInGho,
+                maxFee,
+                gasLimit,
+                data,
+                extraArgs
+            );
     }
 }

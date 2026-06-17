@@ -9,5 +9,5 @@ interface ICCIPSenderUpgradeable is ICCIPBaseUpgradeable {
     error CCIPSenderExceedsMaxFee(uint256 fee, uint256 maxFee);
     error CCIPSenderInvalidParameters();
 
-    function LINK_TOKEN() external view returns (address);
+    function GHO_TOKEN() external view returns (address);
 }

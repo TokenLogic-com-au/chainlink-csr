@@ -11,38 +11,44 @@ import {ICustomSenderReferral, ICustomSender} from "../interfaces/ICustomSenderR
  */
 contract CustomSenderReferral is CustomSender, ICustomSenderReferral {
     /**
-     * @dev Sets the immutable values for {TOKEN}, {WNATIVE}, {LINK_TOKEN}, and {CCIP_ROUTER} and the initial values for
+     * @dev Sets the immutable values for {SGHO_TOKEN}, {GHO_TOKEN}, and {CCIP_ROUTER} and the initial values for
      * the oracle pool and the admin role.
      */
     constructor(
-        address token,
-        address wnative,
-        address linkToken,
+        address sghoToken,
+        address ghoToken,
         address ccipRouter,
         address oraclePool,
+        address vault,
         address initialAdmin
-    ) CustomSender(token, wnative, linkToken, ccipRouter, oraclePool, initialAdmin) {}
+    )
+        CustomSender(
+            sghoToken,
+            ghoToken,
+            ccipRouter,
+            oraclePool,
+            vault,
+            initialAdmin
+        )
+    {}
 
     /**
-     * @dev Allows users to swap (W)Native for the native staked token using an oracle pool.
-     * The user sends (W)Native to this contract, the oracle pool swaps the (W)Native for the native staked token,
-     * and sends the native staked token back to the user.
-     * The user can also specify a referral that is only used for tracking purposes.
+     * @dev Allows users to swap GHO for sGHO using an oracle pool, while emitting a {Referral} event
+     * that can be used for tracking purposes off-chain.
      *
      * Requirements:
      *
      * - The amount sent must be greater than 0.
-     * - The token sent must be the wrapped native token or native token.
+     * - The token sent must be GHO.
      *
-     * Emits a {FastStake} and {Referral} event.
+     * Emits a {Deposit} and {Referral} event.
      */
-    function fastStakeReferral(address token, uint256 amount, uint256 minAmountOut, address referral)
-        public
-        payable
-        override
-        returns (uint256 amountOut)
-    {
-        amountOut = CustomSender.fastStake(token, amount, minAmountOut);
+    function depositReferral(
+        uint256 exactAmountIn,
+        uint256 minAmountOut,
+        address referral
+    ) public override returns (uint256 amountOut) {
+        amountOut = CustomSender.deposit(exactAmountIn, minAmountOut);
         emit Referral(msg.sender, referral, amountOut);
     }
 }
