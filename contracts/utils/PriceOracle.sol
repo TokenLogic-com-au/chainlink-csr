@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
+import {IOracle} from "../interfaces/IOracle.sol";
 import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
 
 /**
@@ -11,19 +12,29 @@ import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
  * It is expected that the price oracle returns the price in 1e18 scale (18 decimals).
  */
 contract PriceOracle is IPriceOracle {
+    /// @dev The precision used to scale the price (18 decimals).
     uint256 private constant PRECISION = 1e18;
 
+    /// @inheritdoc IPriceOracle
     address public immutable AGGREGATOR;
+
+    /// @inheritdoc IPriceOracle
     bool public immutable IS_INVERSE;
+
+    /// @inheritdoc IPriceOracle
     uint8 public immutable DECIMALS;
+
+    /// @inheritdoc IPriceOracle
     uint32 public immutable HEARTBEAT;
 
     /**
-     * immutable values for {AGGREGATOR}, {IS_INVERSE}, {DECIMALS} and {HEARTBEAT}.
+     * @dev Sets the immutable values for {AGGREGATOR}, {IS_INVERSE}, {DECIMALS} and {HEARTBEAT}.
      *
-     * The `aggregator` address is the address of the Chainlink Aggregator contract.
-     * The `isInverse` flag is true if the price is inverted (1 / price).
-     * The `heartbeat` is the time in seconds after which the price is considered stale.
+     * The {DECIMALS} value is read directly from the Chainlink Aggregator.
+     *
+     * @param aggregator The address of the Chainlink Aggregator contract.
+     * @param isInverse True if the price is inverted (1 / price).
+     * @param heartbeat The time in seconds after which the price is considered stale.
      */
     constructor(address aggregator, bool isInverse, uint32 heartbeat) {
         if (aggregator == address(0)) revert PriceOracleInvalidParameters();
@@ -34,14 +45,13 @@ contract PriceOracle is IPriceOracle {
         HEARTBEAT = heartbeat;
     }
 
-    /**
-     * @dev Returns the latest answer from the Chainlink Aggregator.
-     *
-     * Requirements:
-     *
-     * - The price returned must be greater than 0.
-     * - The price must not be stale, i.e. the timestamp of the price must be within the heartbeat.
-     */
+    /// @inheritdoc IOracle
+    /// @dev Reads the latest answer from the Chainlink Aggregator and scales it to 1e18.
+    ///
+    /// Requirements:
+    ///
+    /// - The price returned must be greater than 0.
+    /// - The price must not be stale, i.e. the timestamp of the price must be within the heartbeat.
     function getLatestAnswer() public view virtual override returns (uint256 answerScaled) {
         (, int256 answer,, uint256 updatedAt,) = AggregatorV3Interface(AGGREGATOR).latestRoundData();
 

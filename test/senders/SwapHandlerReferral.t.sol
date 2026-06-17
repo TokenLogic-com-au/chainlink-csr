@@ -5,7 +5,8 @@ import "forge-std/Test.sol";
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import "../../contracts/senders/CustomSender.sol";
+import "../../contracts/senders/SwapHandlerReferral.sol";
+import "../../contracts/senders/SwapHandler.sol";
 import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
@@ -15,22 +16,28 @@ import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
 import "../mocks/MockDataFeed.sol";
 
-contract CustomSenderTest is Test {
-    CustomSender public sender;
+contract SwapHandlerReferralTest is Test {
+    SwapHandlerReferral public sender;
     PriceOracle public priceOracle;
     OraclePool public oraclePool;
 
     MockDataFeed public dataFeed;
     MockCCIPRouter public ccipRouter;
     MockERC20 public gho;
-    MockERC20 public sgho;
+    MockERC20 public token;
 
     address public vault = makeAddr("vault");
 
+    uint128 public constant GHO_FEE = 1e18;
+    uint128 public constant NATIVE_FEE = 0.01e18;
     uint256 private constant PRECISION = 1e18;
-    uint96 public constant GHO_FEE = 500;
-    uint96 public constant NATIVE_FEE = 1_000;
     uint64 public constant ETHEREUM_CHAIN_SELECTOR = 5009297550715157269;
+
+    event Referral(
+        address indexed user,
+        address indexed referral,
+        uint256 amountOut
+    );
 
     function setUp() public {
         gho = new MockERC20("GHO", "GHO", 18);
@@ -38,18 +45,18 @@ contract CustomSenderTest is Test {
         dataFeed = new MockDataFeed(18);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
 
-        sgho = new MockERC20("sGho", "sGHO", 18);
+        token = new MockERC20("Token", "TK", 18);
 
         oraclePool = new OraclePool(
             _predictContractAddress(1),
             address(gho),
-            address(sgho),
+            address(token),
             address(priceOracle),
-            GHO_FEE,
+            500,
             address(this)
         );
-        sender = new CustomSender(
-            address(sgho),
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -59,8 +66,8 @@ contract CustomSenderTest is Test {
     }
 
     function test_Constructor() public {
-        sender = new CustomSender(
-            address(sgho),
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -68,8 +75,8 @@ contract CustomSenderTest is Test {
             address(this)
         ); // to fix coverage
 
-        assertEq(sender.SGHO(), address(sgho), "test_Constructor::1");
-        assertEq(sender.GHO_TOKEN(), address(gho), "test_Constructor::2");
+        assertEq(sender.SGHO(), address(token), "test_Constructor::1");
+        assertEq(sender.GHO(), address(gho), "test_Constructor::2");
         assertEq(
             sender.CCIP_ROUTER(),
             address(ccipRouter),
@@ -88,8 +95,8 @@ contract CustomSenderTest is Test {
     }
 
     function test_Revert_Constructor() public {
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSender(
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
             address(0),
             address(gho),
             address(ccipRouter),
@@ -101,8 +108,8 @@ contract CustomSenderTest is Test {
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInvalidParameters.selector
         );
-        sender = new CustomSender(
-            address(sgho),
+        sender = new SwapHandlerReferral(
+            address(token),
             address(0),
             address(ccipRouter),
             address(oraclePool),
@@ -110,10 +117,10 @@ contract CustomSenderTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSender(
-            address(sgho),
-            address(sgho),
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
+            address(token),
+            address(token),
             address(ccipRouter),
             address(oraclePool),
             vault,
@@ -123,18 +130,18 @@ contract CustomSenderTest is Test {
         vm.expectRevert(
             ICCIPBaseUpgradeable.CCIPBaseInvalidParameters.selector
         );
-        sender = new CustomSender(
-            address(sgho),
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(0),
             address(oraclePool),
             vault,
-            address(this)
+            address(0)
         );
 
         // Should not revert, we allow the oracle pool to be set to address(0) to disable fast stake
-        sender = new CustomSender(
-            address(sgho),
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(ccipRouter),
             address(0),
@@ -142,9 +149,9 @@ contract CustomSenderTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAddress.selector);
-        sender = new CustomSender(
-            address(sgho),
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAddress.selector);
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -152,9 +159,9 @@ contract CustomSenderTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSender(
-            address(sgho),
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
+            address(token),
             address(gho),
             address(ccipRouter),
             address(oraclePool),
@@ -168,135 +175,7 @@ contract CustomSenderTest is Test {
         sender.initialize(address(0), address(0), address(0));
     }
 
-    function test_SetVault() public {
-        assertEq(sender.getVault(), vault, "test_SetVault::1");
-
-        address newVault = makeAddr("newVault");
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.VaultSet(newVault);
-        sender.setVault(newVault);
-        assertEq(sender.getVault(), newVault, "test_SetVault::2");
-
-        address anotherVault = makeAddr("anotherVault");
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.VaultSet(anotherVault);
-        sender.setVault(anotherVault);
-        assertEq(sender.getVault(), anotherVault, "test_SetVault::3");
-
-        vm.expectRevert(ICustomSender.CustomSenderZeroAddress.selector);
-        sender.setVault(address(0));
-    }
-
-    function test_Fuzz_SetOraclePool(
-        address oraclePool1,
-        address oraclePool2
-    ) public {
-        assertEq(
-            sender.getOraclePool(),
-            address(oraclePool),
-            "test_Fuzz_SetOraclePool::1"
-        );
-
-        sender.setOraclePool(oraclePool1);
-
-        assertEq(
-            sender.getOraclePool(),
-            oraclePool1,
-            "test_Fuzz_SetOraclePool::2"
-        );
-
-        sender.setOraclePool(oraclePool2);
-
-        assertEq(
-            sender.getOraclePool(),
-            oraclePool2,
-            "test_Fuzz_SetOraclePool::3"
-        );
-
-        sender.setOraclePool(address(0));
-
-        assertEq(
-            sender.getOraclePool(),
-            address(0),
-            "test_Fuzz_SetOraclePool::4"
-        );
-
-        sender.setOraclePool(oraclePool1);
-    }
-
-    function test_SetOraclePool_ApprovalsAndEvent() public {
-        address newPool = makeAddr("newPool");
-
-        assertEq(
-            gho.allowance(address(sender), address(oraclePool)),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::1"
-        );
-        assertEq(
-            sgho.allowance(address(sender), address(oraclePool)),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::2"
-        );
-
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.OraclePoolSet(address(oraclePool), newPool);
-        sender.setOraclePool(newPool);
-
-        assertEq(
-            gho.allowance(address(sender), address(oraclePool)),
-            0,
-            "test_SetOraclePool_ApprovalsAndEvent::3"
-        );
-        assertEq(
-            sgho.allowance(address(sender), address(oraclePool)),
-            0,
-            "test_SetOraclePool_ApprovalsAndEvent::4"
-        );
-        assertEq(
-            gho.allowance(address(sender), newPool),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::5"
-        );
-        assertEq(
-            sgho.allowance(address(sender), newPool),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::6"
-        );
-
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.OraclePoolSet(newPool, address(0));
-        sender.setOraclePool(address(0));
-
-        assertEq(
-            gho.allowance(address(sender), newPool),
-            0,
-            "test_SetOraclePool_ApprovalsAndEvent::7"
-        );
-        assertEq(
-            sgho.allowance(address(sender), newPool),
-            0,
-            "test_SetOraclePool_ApprovalsAndEvent::8"
-        );
-
-        address anotherPool = makeAddr("anotherPool");
-
-        vm.expectEmit(true, true, true, true, address(sender));
-        emit ICustomSender.OraclePoolSet(address(0), anotherPool);
-        sender.setOraclePool(anotherPool);
-
-        assertEq(
-            gho.allowance(address(sender), anotherPool),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::9"
-        );
-        assertEq(
-            sgho.allowance(address(sender), anotherPool),
-            type(uint256).max,
-            "test_SetOraclePool_ApprovalsAndEvent::10"
-        );
-    }
-
-    function test_Fuzz_Deposit(uint256 price, uint256 amountIn) public {
+    function test_Fuzz_DepositReferral(uint256 price, uint256 amountIn) public {
         price = bound(price, 0.001e18, 100e18);
         amountIn = bound(amountIn, 1, 100e18);
 
@@ -305,48 +184,55 @@ contract CustomSenderTest is Test {
         uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
-        sgho.mint(address(oraclePool), amountOut);
+        token.mint(address(oraclePool), amountOut);
         gho.mint(address(this), amountIn);
         gho.approve(address(sender), amountIn);
 
-        uint256 balance = address(this).balance;
+        address referral = makeAddr("referral");
 
-        sender.deposit(amountIn, amountOut);
+        vm.expectEmit(true, true, true, true);
+        emit Referral(address(this), referral, amountOut);
 
-        assertEq(gho.balanceOf(address(this)), 0, "test_Fuzz_Deposit::1");
+        uint256 result = sender.depositReferral(amountIn, amountOut, referral);
+
+        assertEq(result, amountOut, "test_Fuzz_DepositReferral::1");
+        assertEq(
+            gho.balanceOf(address(this)),
+            0,
+            "test_Fuzz_DepositReferral::2"
+        );
         assertEq(
             gho.balanceOf(address(oraclePool)),
             amountIn,
-            "test_Fuzz_Deposit::2"
+            "test_Fuzz_DepositReferral::3"
         );
         assertEq(
-            sgho.balanceOf(address(this)),
+            token.balanceOf(address(this)),
             amountOut,
-            "test_Fuzz_Deposit::3"
+            "test_Fuzz_DepositReferral::4"
         );
         assertEq(
-            sgho.balanceOf(address(oraclePool)),
+            token.balanceOf(address(oraclePool)),
             0,
-            "test_Fuzz_Deposit::4"
+            "test_Fuzz_DepositReferral::5"
         );
-        assertEq(address(this).balance, balance, "test_Fuzz_Deposit::5");
     }
 
-    function test_Fuzz_Revert_Deposit(uint256 amountIn) public {
+    function test_Fuzz_Revert_DepositReferral(uint256 amountIn) public {
         amountIn = bound(amountIn, 1, type(uint256).max);
 
         dataFeed.set(1e18, 1, block.timestamp, block.timestamp, 1);
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
-        sender.deposit(amountIn, 0);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
+        sender.depositReferral(amountIn, 0, address(0));
 
         sender.setOraclePool(address(oraclePool));
 
         address badToken = address(new MockERC20("BadToken", "BAD", 18));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
-        sender.deposit(0, 0);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
+        sender.depositReferral(0, 0, address(0));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -356,7 +242,7 @@ contract CustomSenderTest is Test {
                 amountIn
             )
         );
-        sender.deposit(amountIn, 0);
+        sender.depositReferral(amountIn, 0, address(0));
 
         gho.approve(address(sender), amountIn);
 
@@ -368,9 +254,9 @@ contract CustomSenderTest is Test {
                 amountIn
             )
         );
-        sender.deposit(amountIn, 0);
+        sender.depositReferral(amountIn, 0, address(0));
 
-        sender = new CustomSender(
+        sender = new SwapHandlerReferral(
             address(badToken),
             address(gho),
             address(ccipRouter),
@@ -392,16 +278,16 @@ contract CustomSenderTest is Test {
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
-        sgho.mint(address(this), amountIn);
-        sgho.approve(address(sender), amountIn);
+        token.mint(address(this), amountIn);
+        token.approve(address(sender), amountIn);
 
         uint256 balance = address(this).balance;
 
         sender.redeem(amountIn, amountOut);
 
-        assertEq(sgho.balanceOf(address(this)), 0, "test_Fuzz_Redeem::1");
+        assertEq(token.balanceOf(address(this)), 0, "test_Fuzz_Redeem::1");
         assertEq(
-            sgho.balanceOf(address(oraclePool)),
+            token.balanceOf(address(oraclePool)),
             amountIn,
             "test_Fuzz_Redeem::2"
         );
@@ -420,12 +306,12 @@ contract CustomSenderTest is Test {
         dataFeed.set(1e18, 1, block.timestamp, block.timestamp, 1);
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
         sender.redeem(amountIn, 0);
 
         sender.setOraclePool(address(oraclePool));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
         sender.redeem(0, 0);
 
         vm.expectRevert(
@@ -438,7 +324,7 @@ contract CustomSenderTest is Test {
         );
         sender.redeem(amountIn, 0);
 
-        sgho.approve(address(sender), amountIn);
+        token.approve(address(sender), amountIn);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -525,9 +411,9 @@ contract CustomSenderTest is Test {
             payInGhoOtoD ? amountToSync + GHO_FEE : amountToSync,
             "test_Fuzz_Sync::3"
         );
-        assertEq(sgho.balanceOf(address(this)), 0, "test_Fuzz_Sync::4");
-        assertEq(sgho.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::5");
-        assertEq(sgho.balanceOf(address(ccipRouter)), 0, "test_Fuzz_Sync::6");
+        assertEq(token.balanceOf(address(this)), 0, "test_Fuzz_Sync::4");
+        assertEq(token.balanceOf(address(oraclePool)), 0, "test_Fuzz_Sync::5");
+        assertEq(token.balanceOf(address(ccipRouter)), 0, "test_Fuzz_Sync::6");
         assertEq(
             address(this).balance,
             balance - (payInGhoOtoD ? 0 : NATIVE_FEE),
@@ -568,16 +454,13 @@ contract CustomSenderTest is Test {
 
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
         sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
         sender.sync(address(gho), 1, 0, new bytes(0), new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
-
-        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
-        sender.sync(address(1), amountToSync, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -602,8 +485,14 @@ contract CustomSenderTest is Test {
         );
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
-        sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
+        vm.expectRevert(ISwapHandler.SwapHandlerInsufficientGas.selector);
+        sender.sync(
+            address(gho),
+            amountToSync,
+            0,
+            new bytes(21),
+            new bytes(0)
+        );
     }
 
     receive() external payable {}

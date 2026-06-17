@@ -8,13 +8,16 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
  * @dev A library for handling token transfers and native transfers.
  */
 library TokenHelper {
-    /* @dev Error thrown when a native transfer fails */
+    /// @dev Error thrown when a native token transfer fails.
     error TokenHelperNativeTransferFailed();
 
     /**
      * @dev Transfers `amount` of `token` to `to`.
      * If `amount` is zero, it does nothing.
-     * If `token` is the zero address, it transfers `amount` of native tokens to `to`.
+     * If `token` is the zero address, it transfers `amount` of native tokens to `to` instead.
+     * @param token The address of the token to transfer, or the zero address for the native token.
+     * @param to The address to receive the tokens.
+     * @param amount The amount of tokens to transfer.
      */
     function transfer(address token, address to, uint256 amount) internal {
         if (amount == 0) return;
@@ -27,9 +30,11 @@ library TokenHelper {
     }
 
     /**
-     * @dev Refunds the excess native tokens to `to`.
-     * The excess native tokens are the native tokens that are in the contract after the function has been executed.
-     * This function should only be used in a contract that should not hold any native tokens after the function has been executed.
+     * @dev Refunds the entire native token balance held by the contract to `to`, but only when the
+     * current call carried native value (`msg.value` > 0).
+     * This function should only be used in a contract that is not expected to hold any native tokens
+     * after the call has been executed.
+     * @param to The address to receive the refunded native tokens.
      */
     function refundExcessNative(address to) internal {
         if (msg.value > 0) {
@@ -39,12 +44,15 @@ library TokenHelper {
     }
 
     /**
-     * @dev Transfers `amount` of native tokens to `to`.
+     * @dev Transfers `amount` of native tokens to `to` via a low-level call.
      * If `amount` is zero, it does nothing.
      *
      * Requirements:
      *
-     * - The native token transfer must not fail.
+     * - The native token transfer must not fail, otherwise it reverts with {TokenHelperNativeTransferFailed}.
+     *
+     * @param to The address to receive the native tokens.
+     * @param amount The amount of native tokens to transfer.
      */
     function transferNative(address to, uint256 amount) internal {
         if (amount == 0) return;
