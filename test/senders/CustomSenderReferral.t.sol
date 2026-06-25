@@ -383,7 +383,7 @@ contract CustomSenderReferralTest is Test {
                 vault,
                 bytes32(uint256(uint160(address(oraclePool)))),
                 uint256(0),
-                true
+                uint256(1)
             ),
             tokenAmounts: tokenAmounts,
             feeToken: payInGhoOtoD ? address(gho) : address(0),

@@ -38,6 +38,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     struct CustomSenderStorage {
         address oraclePool;
         address vault;
+        address localRefundAddress;
     }
 
     // keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.CustomSender")) - 1)) & ~bytes32(uint256(0xff))
@@ -249,6 +250,21 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
+     * @dev Sets the local refund address for mainnet (if applicable).
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     *
+     * Emits a {LocalRefundAddressSet} event.
+     */
+    function setLocalRefundAddress(
+        address refundAddress
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setLocalRefundAddress(refundAddress);
+    }
+
+    /**
      * @dev Returns the address of the oracle pool.
      */
     function getOraclePool() public view returns (address) {
@@ -269,7 +285,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint256 minimumAmountOut,
         bytes calldata feeData,
         bytes calldata extraArgs
-    ) internal virtual returns (bytes32) {
+    ) internal returns (bytes32) {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
 
         Client.EVMTokenAmount[]
@@ -280,7 +296,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             $.vault,
             bytes32(uint256(uint160($.oraclePool))),
             minimumAmountOut,
-            true
+            _packDeliveryAndRefund(true)
         );
 
         (uint256 maxFee, bool payInGho, uint256 gasLimit) = FeeCodec.decodeCCIP(
@@ -305,11 +321,25 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
+     * @dev Packs a local refund address (address(0) is non-returnable locally) with boolean on whether
+     * to return to source chain or not. In case of a misconfiguration, could help to have a local (destination) address
+     * for refunds instead of returning to source chain.
+     * @param returnToSourceChain Whether to return failed messages to source chain
+     */
+    function _packDeliveryAndRefund(
+        bool returnToSourceChain
+    ) internal view returns (uint256) {
+        return
+            (uint256(uint160(_getCustomSenderStorage().localRefundAddress)) <<
+                1) | (returnToSourceChain ? 1 : 0);
+    }
+
+    /**
      * @dev Sets the address of the oracle pool.
      *
      * Emits a {OraclePoolSet} event.
      */
-    function _setOraclePool(address oraclePool) internal virtual {
+    function _setOraclePool(address oraclePool) internal {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
         address oldOracle = $.oraclePool;
 
@@ -339,5 +369,19 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         CustomSenderStorage storage $ = _getCustomSenderStorage();
         $.vault = vault;
         emit VaultSet(vault);
+    }
+
+    /**
+     * @dev Sets the local refund address of the destination chain.
+     *
+     * Emits a {LocalRefundAddressSet} event.
+     */
+    function _setLocalRefundAddress(address refundAddress) internal {
+        CustomSenderStorage storage $ = _getCustomSenderStorage();
+        address oldRefundAddress = $.localRefundAddress;
+
+        $.localRefundAddress = refundAddress;
+
+        emit LocalRefundAddressSet(oldRefundAddress, refundAddress);
     }
 }

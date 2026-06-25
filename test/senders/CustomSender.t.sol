@@ -497,7 +497,7 @@ contract CustomSenderTest is Test {
                 vault,
                 bytes32(uint256(uint160(address(oraclePool)))),
                 uint256(0),
-                true
+                uint256(1)
             ),
             tokenAmounts: tokenAmounts,
             feeToken: payInGhoOtoD ? address(gho) : address(0),
@@ -604,6 +604,94 @@ contract CustomSenderTest is Test {
 
         vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
+    }
+
+    function test_SetLocalRefundAddress() public {
+        address refund1 = makeAddr("refund1");
+        address refund2 = makeAddr("refund2");
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.LocalRefundAddressSet(address(0), refund1);
+        sender.setLocalRefundAddress(refund1);
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.LocalRefundAddressSet(refund1, refund2);
+        sender.setLocalRefundAddress(refund2);
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.LocalRefundAddressSet(refund2, address(0));
+        sender.setLocalRefundAddress(address(0));
+    }
+
+    function test_Revert_SetLocalRefundAddress() public {
+        address nonAdmin = makeAddr("nonAdmin");
+        address refund = makeAddr("refund");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                nonAdmin,
+                sender.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(nonAdmin);
+        sender.setLocalRefundAddress(refund);
+    }
+
+    function test_Sync_WithLocalRefundAddress() public {
+        bytes memory receiver = abi.encode(makeAddr("receiver"));
+        uint256 amountToSync = 1e18;
+        address refundAddress = makeAddr("localRefund");
+        uint32 gasLimitOtoD = sender.MIN_PROCESS_MESSAGE_GAS();
+
+        sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
+        sender.grantRole(sender.SYNC_ROLE(), address(this));
+        sender.setLocalRefundAddress(refundAddress);
+        gho.mint(address(oraclePool), amountToSync);
+
+        bytes memory feeOtoD = FeeCodec.encodeCCIP(
+            NATIVE_FEE,
+            false,
+            gasLimitOtoD
+        );
+
+        uint256 expectedPacked = (uint256(uint160(refundAddress)) << 1) | 1;
+
+        Client.EVMTokenAmount[]
+            memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({
+            token: address(gho),
+            amount: amountToSync
+        });
+
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: receiver,
+            data: abi.encode(
+                vault,
+                bytes32(uint256(uint160(address(oraclePool)))),
+                uint256(0),
+                expectedPacked
+            ),
+            tokenAmounts: tokenAmounts,
+            feeToken: address(0),
+            extraArgs: Client._argsToBytes(
+                Client.EVMExtraArgsV1({gasLimit: gasLimitOtoD})
+            )
+        });
+
+        sender.sync{value: NATIVE_FEE}(
+            address(gho),
+            amountToSync,
+            0,
+            feeOtoD,
+            new bytes(0)
+        );
+
+        assertEq(
+            ccipRouter.data(),
+            abi.encode(ETHEREUM_CHAIN_SELECTOR, message),
+            "test_Sync_WithLocalRefundAddress::1"
+        );
     }
 
     receive() external payable {}
