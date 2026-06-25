@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
-import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../Mocks/MockERC20.sol";
 import "../Mocks/MockCCIPRouter.sol";
 
@@ -122,7 +122,8 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             maxFee,
             gasLimit,
-            data
+            data,
+            new bytes(0)
         );
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
@@ -179,6 +180,7 @@ contract CCIPSenderUpgradeableTest is Test {
             false,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
     }
@@ -197,6 +199,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -215,6 +218,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -230,6 +234,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -249,7 +254,45 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             fee,
             0,
+            new bytes(0),
             new bytes(0)
+        );
+    }
+
+    function test_Revert_CCIPSend_InsufficientGasInExtraArgs() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.MIN_PROCESS_MESSAGE_GAS() - 1;
+        bytes memory extraArgs = abi.encode(args);
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
+        sender.ccipSendTo(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_CCIPSend_SufficientGasInExtraArgs() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.MIN_PROCESS_MESSAGE_GAS();
+        bytes memory extraArgs = abi.encode(args);
+
+        sender.ccipSendTo{value: NATIVE_FEE}(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
         );
     }
 
@@ -304,7 +347,8 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
         bool payInLink,
         uint256 maxFee,
         uint32 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes memory extraArgs
     ) external payable returns (bytes32) {
         return
             _ccipSendTo(
@@ -316,7 +360,7 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
                 maxFee,
                 gasLimit,
                 data,
-                new bytes(0)
+                extraArgs
             );
     }
 

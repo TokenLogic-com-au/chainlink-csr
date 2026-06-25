@@ -5,6 +5,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
+import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {CCIPBaseUpgradeable} from "./CCIPBaseUpgradeable.sol";
 import {ICCIPSenderUpgradeable} from "../interfaces/ICCIPSenderUpgradeable.sol";
 
@@ -21,6 +22,9 @@ abstract contract CCIPSenderUpgradeable is
     using SafeERC20 for IERC20;
 
     address public immutable override GHO_TOKEN;
+
+    /// @dev The minimum gas to process the message.
+    uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
 
     /**
      * @dev Sets the immutable value for {GHO_TOKEN}.
@@ -76,6 +80,18 @@ abstract contract CCIPSenderUpgradeable is
 
                 IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
             }
+        }
+
+        if (extraArgs.length > 0) {
+            ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
+                extraArgs,
+                (ExtraArgsCodec.GenericExtraArgsV3)
+            );
+
+            require(
+                args.gasLimit >= MIN_PROCESS_MESSAGE_GAS,
+                CCIPSenderInsufficientGas()
+            );
         }
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({

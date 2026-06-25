@@ -11,6 +11,7 @@ import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/ccip/CCIPBaseUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../mocks/MockERC20.sol";
 import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
@@ -485,13 +486,45 @@ contract CustomSenderReferralTest is Test {
         );
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
         sender.sync(
             address(gho),
             amountToSync,
             0,
             new bytes(21),
             new bytes(0)
+        );
+    }
+
+    function test_Revert_Sync_InsufficientGasInExtraArgs() public {
+        bytes memory receiver = new bytes(1);
+        uint256 amountToSync = 1e18;
+
+        sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
+        sender.grantRole(sender.SYNC_ROLE(), address(this));
+        gho.mint(address(oraclePool), amountToSync);
+
+        bytes memory feeData = FeeCodec.encodeCCIP(
+            NATIVE_FEE,
+            false,
+            sender.MIN_PROCESS_MESSAGE_GAS()
+        );
+
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.MIN_PROCESS_MESSAGE_GAS() - 1;
+        bytes memory extraArgs = abi.encode(args);
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
+        sender.sync{value: NATIVE_FEE}(
+            address(gho),
+            amountToSync,
+            0,
+            feeData,
+            extraArgs
         );
     }
 
