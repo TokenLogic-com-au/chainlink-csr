@@ -36,17 +36,22 @@ contract CustomSenderTest is Test {
         gho = new MockERC20("GHO", "GHO", 18);
         ccipRouter = new MockCCIPRouter(address(gho), GHO_FEE, NATIVE_FEE);
         dataFeed = new MockDataFeed(18);
+        // sGHO/GHO ratio starts at 1.0 and grows with staking yield.
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
 
         sgho = new MockERC20("sGho", "sGHO", 18);
 
+        // Cap parameters: 20% / yr (realistic DeFi peak rate), so after 6 years the linear cap
+        // accumulates to ~2.2e18 — just above the fuzz price ceiling of 2e18 below.
         oraclePool = new OraclePool(
             _predictContractAddress(1),
             address(gho),
             address(sgho),
             address(priceOracle),
             GHO_FEE,
-            address(this)
+            address(this),
+            2000
         );
         sender = new CustomSender(
             address(sgho),
@@ -56,6 +61,8 @@ contract CustomSenderTest is Test {
             vault,
             address(this)
         );
+        vm.warp(block.timestamp + 6 * 365 days);
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
     }
 
     function test_Constructor() public {
@@ -297,7 +304,7 @@ contract CustomSenderTest is Test {
     }
 
     function test_Fuzz_Deposit(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
@@ -381,7 +388,7 @@ contract CustomSenderTest is Test {
     }
 
     function test_Fuzz_Redeem(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);

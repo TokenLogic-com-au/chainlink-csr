@@ -26,17 +26,25 @@ contract PausableImmutableoraclePoolTest is Test {
 
     function setUp() public {
         dataFeed = new MockDataFeed(18);
+        // sGHO/GHO ratio starts at 1.0 and grows with staking yield.
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
         tokenIn = new MockERC20("TokenIn", "TI", 18);
         tokenOut = new MockERC20("TokenOut", "TO", 18);
+        // Cap parameters: 20% / yr (realistic DeFi peak rate), so after 6 years the linear cap
+        // accumulates to ~2.2e18 — just above the fuzz price ceiling of 2e18 below.
         oraclePool = new PausableImmutableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
             address(priceOracle),
             fee,
-            address(this)
+            address(this),
+            2000
         );
+        vm.warp(block.timestamp + 6 * 365 days);
+        // Refresh the feed timestamp so subsequent reads pass the heartbeat staleness check.
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
 
         vm.label(address(dataFeed), "dataFeed");
         vm.label(address(priceOracle), "priceOracle");
@@ -52,7 +60,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             fee,
-            address(this)
+            address(this),
+            type(uint16).max
         ); // to fix coverage
 
         assertEq(oraclePool.SENDER(), sender, "test_Constructor::1");
@@ -74,7 +83,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             fee,
-            address(this)
+            address(this),
+            type(uint16).max
         );
 
         vm.expectRevert(IOraclePool.OraclePoolInvalidParameters.selector);
@@ -84,7 +94,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             fee,
-            address(this)
+            address(this),
+            type(uint16).max
         );
 
         vm.expectRevert(IOraclePool.OraclePoolInvalidParameters.selector);
@@ -94,7 +105,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(0),
             address(priceOracle),
             fee,
-            address(this)
+            address(this),
+            type(uint16).max
         );
 
         vm.expectRevert(
@@ -109,7 +121,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             fee,
-            address(0)
+            address(0),
+            type(uint16).max
         );
 
         vm.expectRevert(
@@ -123,7 +136,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(0),
             fee,
-            address(this)
+            address(this),
+            type(uint16).max
         );
     }
 
@@ -166,7 +180,7 @@ contract PausableImmutableoraclePoolTest is Test {
         uint256 amountA,
         uint256 amountB
     ) public {
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
 
@@ -228,7 +242,7 @@ contract PausableImmutableoraclePoolTest is Test {
     ) public {
         vm.assume(msgSender != sender);
 
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountIn = bound(amountIn, 0.01e18, 100e18);
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
@@ -287,7 +301,7 @@ contract PausableImmutableoraclePoolTest is Test {
             "test_Fuzz_Revert_Deposit::1"
         );
 
-        price = bound(price, price + 1, 200e18);
+        price = bound(price, price + 1, 2e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
         feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
@@ -320,7 +334,7 @@ contract PausableImmutableoraclePoolTest is Test {
         uint256 amountA,
         uint256 amountB
     ) public {
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
 
@@ -388,7 +402,7 @@ contract PausableImmutableoraclePoolTest is Test {
     ) public {
         vm.assume(msgSender != sender);
 
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountIn = bound(amountIn, 0.01e18, 100e18);
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
@@ -449,7 +463,7 @@ contract PausableImmutableoraclePoolTest is Test {
             "test_Fuzz_Revert_Redeem::1"
         );
 
-        price = bound(price, price + 1, 200e18);
+        price = bound(price, price + 1, 2e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
         exchangeRateAmount = (amountIn * price) / 1e18;
@@ -489,7 +503,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             0,
-            address(this)
+            address(this),
+            type(uint16).max
         );
 
         tokenIn.mint(address(sender), amount);
@@ -569,7 +584,8 @@ contract PausableImmutableoraclePoolTest is Test {
             address(tokenOut),
             address(priceOracle),
             0,
-            address(this)
+            address(this),
+            type(uint16).max
         );
 
         tokenOut.mint(address(oraclePool), 1e18);
