@@ -348,11 +348,7 @@ contract CustomSenderReferralTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
         gasLimitOtoD = uint32(
-            bound(
-                gasLimitOtoD,
-                sender.MIN_PROCESS_MESSAGE_GAS(),
-                type(uint32).max
-            )
+            bound(gasLimitOtoD, sender.minProcessMessageGas(), type(uint32).max)
         );
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
@@ -489,13 +485,7 @@ contract CustomSenderReferralTest is Test {
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
         );
-        sender.sync(
-            address(gho),
-            amountToSync,
-            0,
-            new bytes(21),
-            new bytes(0)
-        );
+        sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
     }
 
     function test_Revert_Sync_InsufficientGasInExtraArgs() public {
@@ -509,11 +499,11 @@ contract CustomSenderReferralTest is Test {
         bytes memory feeData = FeeCodec.encodeCCIP(
             NATIVE_FEE,
             false,
-            sender.MIN_PROCESS_MESSAGE_GAS()
+            sender.minProcessMessageGas()
         );
 
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.MIN_PROCESS_MESSAGE_GAS() - 1;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
         bytes memory extraArgs = abi.encode(args);
 
         vm.expectRevert(

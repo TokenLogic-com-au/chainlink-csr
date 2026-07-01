@@ -10,7 +10,19 @@ interface ICCIPSenderUpgradeable is ICCIPBaseUpgradeable {
     error CCIPSenderInvalidTokenAmount();
     error CCIPSenderInsufficientGas();
 
+    /// @dev The gas limit passed to `setMinProcessMessageGas` is zero, which would disable the guard.
+    error CCIPSenderInvalidGasLimit();
+
+    /**
+     * Emitted when the minimum gas required to process the message on the destination chain is updated.
+     * @param oldGasLimit The previous minimum gas limit.
+     * @param newGasLimit The new minimum gas limit.
+     */
+    event MinProcessMessageGasSet(uint32 oldGasLimit, uint32 newGasLimit);
+
     function GHO_TOKEN() external view returns (address);
 
-    function MIN_PROCESS_MESSAGE_GAS() external view returns (uint32);
+    function minProcessMessageGas() external view returns (uint32);
+
+    function setMinProcessMessageGas(uint32 gasLimit) external;
 }

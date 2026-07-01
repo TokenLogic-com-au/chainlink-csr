@@ -23,8 +23,10 @@ abstract contract CCIPSenderUpgradeable is
 
     address public immutable override GHO_TOKEN;
 
-    /// @dev The minimum gas to process the message.
-    uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
+    /// @dev The minimum gas that must be encoded in `extraArgs` (or in the fallback `gasLimit`
+    /// passed by the derived sender) for the destination chain to execute the message. Defaults to
+    /// 400,000. Admin-tunable via {setMinProcessMessageGas} so it can track destination-chain changes.
+    uint32 public minProcessMessageGas = 400_000;
 
     /**
      * @dev Sets the immutable value for {GHO_TOKEN}.
@@ -38,6 +40,28 @@ abstract contract CCIPSenderUpgradeable is
     function __CCIPSender_init() internal onlyInitializing {}
 
     function __CCIPSender_init_unchained() internal onlyInitializing {}
+
+    /**
+     * @dev Updates the minimum gas required to process the message on the destination chain.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     * - `gasLimit` must be non-zero — a zero value would disable the guard and let low-gas messages through.
+     *
+     * Emits a {MinProcessMessageGasSet} event.
+     * @param gasLimit The new minimum gas limit.
+     */
+    function setMinProcessMessageGas(
+        uint32 gasLimit
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(gasLimit > 0, CCIPSenderInvalidGasLimit());
+
+        uint32 oldGasLimit = minProcessMessageGas;
+        minProcessMessageGas = gasLimit;
+
+        emit MinProcessMessageGasSet(oldGasLimit, gasLimit);
+    }
 
     /**
      * @dev Sends a message to the CCIP router.
@@ -89,7 +113,7 @@ abstract contract CCIPSenderUpgradeable is
             );
 
             require(
-                args.gasLimit >= MIN_PROCESS_MESSAGE_GAS,
+                args.gasLimit >= minProcessMessageGas,
                 CCIPSenderInsufficientGas()
             );
         }

@@ -173,8 +173,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * - `amount` must be greater than 0.
      * - `token` must be either `GHO` or `SGHO`.
      * - The oracle pool must be set.
-     * - The gas limit encoded in `feeData` must be at least `MIN_PROCESS_MESSAGE_GAS`.
-     * - If `extraArgs` is non-empty, the `gasLimit` it encodes (as `GenericExtraArgsV3`) must also be at least `MIN_PROCESS_MESSAGE_GAS`.
+     * - The gas limit encoded in `feeData` must be at least `minProcessMessageGas`.
+     * - If `extraArgs` is non-empty, the `gasLimit` it encodes (as `GenericExtraArgsV3`) must also be at least `minProcessMessageGas`.
      *
      * Emits a {Sync} event.
      */
@@ -285,10 +285,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             feeData
         );
 
-        require(
-            gasLimit >= MIN_PROCESS_MESSAGE_GAS,
-            CCIPSenderInsufficientGas()
-        );
+        require(gasLimit >= minProcessMessageGas, CCIPSenderInsufficientGas());
 
         return
             _ccipSend(

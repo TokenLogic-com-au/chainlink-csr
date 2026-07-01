@@ -462,11 +462,7 @@ contract CustomSenderTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
         gasLimitOtoD = uint32(
-            bound(
-                gasLimitOtoD,
-                sender.MIN_PROCESS_MESSAGE_GAS(),
-                type(uint32).max
-            )
+            bound(gasLimitOtoD, sender.minProcessMessageGas(), type(uint32).max)
         );
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
@@ -620,11 +616,11 @@ contract CustomSenderTest is Test {
         bytes memory feeData = FeeCodec.encodeCCIP(
             NATIVE_FEE,
             false,
-            sender.MIN_PROCESS_MESSAGE_GAS()
+            sender.minProcessMessageGas()
         );
 
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.MIN_PROCESS_MESSAGE_GAS() - 1;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
         bytes memory extraArgs = abi.encode(args);
 
         vm.expectRevert(
