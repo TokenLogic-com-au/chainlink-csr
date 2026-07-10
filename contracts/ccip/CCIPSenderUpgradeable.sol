@@ -87,7 +87,7 @@ abstract contract CCIPSenderUpgradeable is
         uint256 maxFee,
         uint256 gasLimit,
         bytes memory data,
-        bytes memory extraArgs
+        bytes calldata extraArgs
     ) internal virtual returns (bytes32) {
         require(receiver.length > 0, CCIPSenderEmptyReceiver());
 
@@ -108,7 +108,7 @@ abstract contract CCIPSenderUpgradeable is
 
         if (extraArgs.length > 0) {
             ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
-                extraArgs,
+                extraArgs[4:],
                 (ExtraArgsCodec.GenericExtraArgsV3)
             );
 

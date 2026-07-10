@@ -262,7 +262,7 @@ contract CCIPSenderUpgradeableTest is Test {
     function test_Revert_CCIPSend_InsufficientGasInExtraArgs() public {
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encode(args);
+        bytes memory extraArgs = abi.encodeWithSelector(bytes4(0), args);
 
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
@@ -282,7 +282,7 @@ contract CCIPSenderUpgradeableTest is Test {
     function test_CCIPSend_SufficientGasInExtraArgs() public {
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas();
-        bytes memory extraArgs = abi.encode(args);
+        bytes memory extraArgs = abi.encodeWithSelector(bytes4(0), args);
 
         sender.ccipSendTo{value: NATIVE_FEE}(
             0,
@@ -401,7 +401,7 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
         uint256 maxFee,
         uint32 gasLimit,
         bytes memory data,
-        bytes memory extraArgs
+        bytes calldata extraArgs
     ) external payable returns (bytes32) {
         return
             _ccipSendTo(
