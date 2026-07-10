@@ -2,6 +2,8 @@
 pragma solidity ^0.8.20;
 
 library ExtraArgsCodec {
+    bytes4 public constant GENERIC_EXTRA_ARGS_V3_TAG = 0xa69dd4aa;
+
     struct GenericExtraArgsV3 {
         /// @notice Gas limit for the callback on the destination chain. If the gas limit is zero and the message data
         /// length is also zero, no callback will be performed, even if a receiver is specified. A gas limit of zero is

@@ -107,6 +107,12 @@ abstract contract CCIPSenderUpgradeable is
         }
 
         if (extraArgs.length > 0) {
+            bytes4 tag = bytes4(extraArgs);
+            require(
+                tag == ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+                CCIPSenderInvalidExtraArgsTag(tag)
+            );
+
             ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
                 extraArgs[4:],
                 (ExtraArgsCodec.GenericExtraArgsV3)

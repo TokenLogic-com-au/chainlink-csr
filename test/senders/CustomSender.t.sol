@@ -621,7 +621,7 @@ contract CustomSenderTest is Test {
 
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encodeWithSelector(bytes4(0), args);
+        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
 
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector

@@ -262,7 +262,7 @@ contract CCIPSenderUpgradeableTest is Test {
     function test_Revert_CCIPSend_InsufficientGasInExtraArgs() public {
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encodeWithSelector(bytes4(0), args);
+        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
 
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
@@ -282,9 +282,58 @@ contract CCIPSenderUpgradeableTest is Test {
     function test_CCIPSend_SufficientGasInExtraArgs() public {
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas();
-        bytes memory extraArgs = abi.encodeWithSelector(bytes4(0), args);
+        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
 
         sender.ccipSendTo{value: NATIVE_FEE}(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_Revert_CCIPSend_InvalidExtraArgsTag() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas();
+
+        // Encode with a wrong tag; every other byte matches a valid V3 blob.
+        bytes4 wrongTag = 0xdeadbeef;
+        bytes memory extraArgs = abi.encodeWithSelector(wrongTag, args);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
+                wrongTag
+            )
+        );
+        sender.ccipSendTo(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_Revert_CCIPSend_TruncatedExtraArgsTag() public {
+        // extraArgs of length > 0 but < 4 — cast to bytes4 pads with zeros and mismatches the tag.
+        bytes memory extraArgs = hex"a69dd4"; // 3 bytes, one short of the real tag.
+        bytes4 expected = bytes4(extraArgs);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
+                expected
+            )
+        );
+        sender.ccipSendTo(
             0,
             new bytes(1),
             new Client.EVMTokenAmount[](0),
