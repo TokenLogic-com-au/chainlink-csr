@@ -218,6 +218,22 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return messageId;
     }
 
+    /// @inheritdoc ICustomSender
+    function refundOraclePool(
+        address token,
+        uint256 amount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(amount > 0, CustomSenderZeroAmount());
+        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+
+        IERC20(token).safeTransfer(oraclePool, amount);
+
+        emit OraclePoolRefunded(oraclePool, token, amount);
+    }
+
     /**
      * @dev Sets the address of the oracle pool.
      * It also approves the maximum amount of `GHO` to the oracle pool and revokes the approval from the previous oracle pool.

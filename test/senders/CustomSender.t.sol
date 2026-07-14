@@ -606,6 +606,101 @@ contract CustomSenderTest is Test {
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
     }
 
+    function test_Fuzz_RefundOraclePool(uint256 amount) public {
+        amount = bound(amount, 1, 100e18);
+
+        // GHO refund path.
+        gho.mint(address(sender), amount);
+
+        uint256 poolBefore = gho.balanceOf(address(oraclePool));
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolRefunded(
+            address(oraclePool),
+            address(gho),
+            amount
+        );
+        sender.refundOraclePool(address(gho), amount);
+
+        assertEq(
+            gho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_RefundOraclePool::1"
+        );
+        assertEq(
+            gho.balanceOf(address(oraclePool)),
+            poolBefore + amount,
+            "test_Fuzz_RefundOraclePool::2"
+        );
+
+        // sGHO refund path (same flow, different token).
+        sgho.mint(address(sender), amount);
+
+        uint256 sghoPoolBefore = sgho.balanceOf(address(oraclePool));
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolRefunded(
+            address(oraclePool),
+            address(sgho),
+            amount
+        );
+        sender.refundOraclePool(address(sgho), amount);
+
+        assertEq(
+            sgho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_RefundOraclePool::3"
+        );
+        assertEq(
+            sgho.balanceOf(address(oraclePool)),
+            sghoPoolBefore + amount,
+            "test_Fuzz_RefundOraclePool::4"
+        );
+    }
+
+    function test_Fuzz_Revert_RefundOraclePool(uint256 amount) public {
+        amount = bound(amount, 1, 100e18);
+
+        // Non-admin caller reverts via AccessControl.
+        address notAdmin = makeAddr("notAdmin");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                notAdmin,
+                sender.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(notAdmin);
+        sender.refundOraclePool(address(gho), amount);
+
+        // Zero amount reverts.
+        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        sender.refundOraclePool(address(gho), 0);
+
+        // Wrong token reverts.
+        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
+        sender.refundOraclePool(address(1), amount);
+
+        // Oracle pool unset reverts.
+        sender.setOraclePool(address(0));
+
+        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        sender.refundOraclePool(address(gho), amount);
+
+        sender.setOraclePool(address(oraclePool));
+
+        // Contract holds no GHO — safeTransfer reverts with ERC20InsufficientBalance.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector,
+                address(sender),
+                0,
+                amount
+            )
+        );
+        sender.refundOraclePool(address(gho), amount);
+    }
+
     receive() external payable {}
 
     function _predictContractAddress(
