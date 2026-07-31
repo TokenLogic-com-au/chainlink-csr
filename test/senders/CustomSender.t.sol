@@ -10,6 +10,7 @@ import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/ccip/CCIPBaseUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../mocks/MockERC20.sol";
 import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
@@ -466,11 +467,7 @@ contract CustomSenderTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
         gasLimitOtoD = uint32(
-            bound(
-                gasLimitOtoD,
-                sender.MIN_PROCESS_MESSAGE_GAS(),
-                type(uint32).max
-            )
+            bound(gasLimitOtoD, sender.minProcessMessageGas(), type(uint32).max)
         );
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
@@ -607,8 +604,43 @@ contract CustomSenderTest is Test {
         );
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
+    }
+
+    function test_Revert_Sync_InsufficientGasInExtraArgs() public {
+        bytes memory receiver = new bytes(1);
+        uint256 amountToSync = 1e18;
+
+        sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
+        sender.grantRole(sender.SYNC_ROLE(), address(this));
+        gho.mint(address(oraclePool), amountToSync);
+
+        bytes memory feeData = FeeCodec.encodeCCIP(
+            NATIVE_FEE,
+            false,
+            sender.minProcessMessageGas()
+        );
+
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
+        bytes memory extraArgs = abi.encodeWithSelector(
+            ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+            args
+        );
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
+        sender.sync{value: NATIVE_FEE}(
+            address(gho),
+            amountToSync,
+            0,
+            feeData,
+            extraArgs
+        );
     }
 
     function test_Fuzz_RefundOraclePool(uint256 amount) public {

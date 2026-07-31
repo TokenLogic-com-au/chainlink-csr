@@ -162,7 +162,7 @@ export async function estimateSlowStakeFees(
   // Get contract parameters
   const [ccipRouterAddress, minProcessMessageGas] = await Promise.all([
     contracts.customSender.CCIP_ROUTER(),
-    contracts.customSender.MIN_PROCESS_MESSAGE_GAS(),
+    contracts.customSender.minProcessMessageGas(),
   ]);
 
   // Calculate gas limit based on contract's minimum requirement

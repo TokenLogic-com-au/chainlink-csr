@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
-import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../Mocks/MockERC20.sol";
 import "../Mocks/MockCCIPRouter.sol";
 
@@ -122,7 +122,8 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             maxFee,
             gasLimit,
-            data
+            data,
+            new bytes(0)
         );
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
@@ -179,6 +180,7 @@ contract CCIPSenderUpgradeableTest is Test {
             false,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
     }
@@ -197,6 +199,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -215,6 +218,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -230,6 +234,7 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             0,
             0,
+            new bytes(0),
             new bytes(0)
         );
 
@@ -249,8 +254,146 @@ contract CCIPSenderUpgradeableTest is Test {
             payInLink,
             fee,
             0,
+            new bytes(0),
             new bytes(0)
         );
+    }
+
+    function test_Revert_CCIPSend_InsufficientGasInExtraArgs() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
+        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
+        sender.ccipSendTo(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_CCIPSend_SufficientGasInExtraArgs() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas();
+        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
+
+        sender.ccipSendTo{value: NATIVE_FEE}(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_Revert_CCIPSend_InvalidExtraArgsTag() public {
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas();
+
+        // Encode with a wrong tag; every other byte matches a valid V3 blob.
+        bytes4 wrongTag = 0xdeadbeef;
+        bytes memory extraArgs = abi.encodeWithSelector(wrongTag, args);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
+                wrongTag
+            )
+        );
+        sender.ccipSendTo(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_Revert_CCIPSend_TruncatedExtraArgsTag() public {
+        // extraArgs of length > 0 but < 4 — cast to bytes4 pads with zeros and mismatches the tag.
+        bytes memory extraArgs = hex"a69dd4"; // 3 bytes, one short of the real tag.
+        bytes4 expected = bytes4(extraArgs);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
+                expected
+            )
+        );
+        sender.ccipSendTo(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_SetMinProcessMessageGas() public {
+        uint32 initialGas = sender.minProcessMessageGas();
+        assertEq(initialGas, 400_000, "test_SetMinProcessMessageGas::1");
+
+        uint32 newGas = 350_000;
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICCIPSenderUpgradeable.MinProcessMessageGasSet(initialGas, newGas);
+        sender.setMinProcessMessageGas(newGas);
+
+        assertEq(
+            sender.minProcessMessageGas(),
+            newGas,
+            "test_SetMinProcessMessageGas::2"
+        );
+
+        // Setting to the boundary value (max uint32) writes without overflow and reads back cleanly.
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICCIPSenderUpgradeable.MinProcessMessageGasSet(
+            newGas,
+            type(uint32).max
+        );
+        sender.setMinProcessMessageGas(type(uint32).max);
+
+        assertEq(
+            sender.minProcessMessageGas(),
+            type(uint32).max,
+            "test_SetMinProcessMessageGas::3"
+        );
+    }
+
+    function test_Revert_SetMinProcessMessageGas_ZeroValue() public {
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInvalidGasLimit.selector
+        );
+        sender.setMinProcessMessageGas(0);
+    }
+
+    function test_Revert_SetMinProcessMessageGas_NonAdmin() public {
+        address notAdmin = makeAddr("notAdmin");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                notAdmin,
+                sender.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(notAdmin);
+        sender.setMinProcessMessageGas(350_000);
     }
 
     function test_Fuzz_Initialize() public {
@@ -283,7 +426,9 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
     constructor(
         address ghoToken,
         address ccipRouter
-    ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {}
+    ) CCIPSenderUpgradeable(ghoToken) CCIPBaseUpgradeable(ccipRouter) {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
 
     function initialize() public initializer {
         __CCIPSender_init();
@@ -304,7 +449,8 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
         bool payInLink,
         uint256 maxFee,
         uint32 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes calldata extraArgs
     ) external payable returns (bytes32) {
         return
             _ccipSendTo(
@@ -316,7 +462,7 @@ contract MockCCIPSender is CCIPSenderUpgradeable {
                 maxFee,
                 gasLimit,
                 data,
-                new bytes(0)
+                extraArgs
             );
     }
 

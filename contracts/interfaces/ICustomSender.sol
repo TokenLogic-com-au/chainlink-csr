@@ -9,7 +9,6 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     error CustomSenderZeroAddress();
     error CustomSenderZeroAmount();
     error CustomSenderInvalidParameters();
-    error CustomSenderInsufficientGas();
 
     event OraclePoolSet(address oldOracle, address oraclePool);
 
@@ -87,8 +86,6 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     function SGHO() external view returns (address);
 
     function SYNC_ROLE() external view returns (bytes32);
-
-    function MIN_PROCESS_MESSAGE_GAS() external view returns (uint32);
 
     function getOraclePool() external view returns (address);
 
