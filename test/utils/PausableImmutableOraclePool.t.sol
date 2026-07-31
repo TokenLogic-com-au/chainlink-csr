@@ -170,7 +170,8 @@ contract PausableImmutableoraclePoolTest is Test {
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
 
-        uint256 feeA = (amountA * fee) / PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeA = (amountA * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutA = ((amountA - feeA) * 1e18) / price;
 
         tokenOut.mint(
@@ -202,7 +203,7 @@ contract PausableImmutableoraclePoolTest is Test {
             "test_Fuzz_Deposit::2"
         );
 
-        uint256 feeB = (amountB * fee) / PRECISION;
+        uint256 feeB = (amountB * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutB = ((amountB - feeB) * 1e18) / price;
 
         vm.prank(bob);
@@ -233,7 +234,8 @@ contract PausableImmutableoraclePoolTest is Test {
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        uint256 feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
+        uint256 feeAmount = (amountIn * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         uint256 amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         vm.prank(msgSender);
@@ -290,7 +292,7 @@ contract PausableImmutableoraclePoolTest is Test {
         price = bound(price, price + 1, 200e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
+        feeAmount = (amountIn * oraclePool.getFee() + PRECISION - 1) / PRECISION;
         amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         oraclePool.deposit(bob, amountIn, amountOut);
@@ -325,7 +327,7 @@ contract PausableImmutableoraclePoolTest is Test {
         amountB = bound(amountB, 0.01e18, 100e18);
 
         uint256 exchangeRateAmountA = (amountA * price) / 1e18;
-        uint256 feeA = (exchangeRateAmountA * fee) / PRECISION;
+        uint256 feeA = (exchangeRateAmountA * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutA = exchangeRateAmountA - feeA;
 
         tokenIn.mint(
@@ -358,7 +360,7 @@ contract PausableImmutableoraclePoolTest is Test {
         );
 
         uint256 exchangeRateAmountB = (amountB * price) / 1e18;
-        uint256 feeB = (exchangeRateAmountB * fee) / PRECISION;
+        uint256 feeB = (exchangeRateAmountB * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutB = exchangeRateAmountB - feeB;
 
         vm.prank(bob);
@@ -394,8 +396,10 @@ contract PausableImmutableoraclePoolTest is Test {
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
-        uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            PRECISION;
+        uint256 feeAmount = (exchangeRateAmount *
+            oraclePool.getFee() +
+            PRECISION -
+            1) / PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         vm.prank(msgSender);
@@ -453,7 +457,9 @@ contract PausableImmutableoraclePoolTest is Test {
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
         exchangeRateAmount = (amountIn * price) / 1e18;
-        feeAmount = (exchangeRateAmount * oraclePool.getFee()) / PRECISION;
+        feeAmount =
+            (exchangeRateAmount * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         amountOut = exchangeRateAmount - feeAmount;
 
         tokenIn.mint(address(oraclePool), amountOut);

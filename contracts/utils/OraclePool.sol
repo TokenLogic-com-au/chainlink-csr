@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IOracle} from "../interfaces/IOracle.sol";
 import {IOraclePool} from "../interfaces/IOraclePool.sol";
@@ -89,9 +90,19 @@ contract OraclePool is Ownable, IOraclePool {
     ) public virtual override onlySender returns (uint256) {
         _validateInputs(recipient, exactAmountIn, address(_oracle));
 
-        uint256 feeAmount = (exactAmountIn * _fee) / PRECISION;
-        uint256 amountOut = ((exactAmountIn - feeAmount) * PRECISION) /
-            _getLatestPrice();
+        uint256 feeAmount = Math.mulDiv(
+            exactAmountIn,
+            _fee,
+            PRECISION,
+            Math.Rounding.Ceil
+        );
+
+        uint256 amountOut = Math.mulDiv(
+            exactAmountIn - feeAmount,
+            PRECISION,
+            _getLatestPrice(),
+            Math.Rounding.Floor
+        );
 
         _validateOutputs(SGHO, amountOut, minAmountOut);
 
@@ -126,9 +137,19 @@ contract OraclePool is Ownable, IOraclePool {
     ) public virtual override onlySender returns (uint256) {
         _validateInputs(recipient, exactAmountIn, address(_oracle));
 
-        uint256 exchangeRateAmount = (exactAmountIn * _getLatestPrice()) /
-            PRECISION;
-        uint256 feeAmount = (exchangeRateAmount * _fee) / PRECISION;
+        uint256 exchangeRateAmount = Math.mulDiv(
+            exactAmountIn,
+            _getLatestPrice(),
+            PRECISION,
+            Math.Rounding.Floor
+        );
+
+        uint256 feeAmount = Math.mulDiv(
+            exchangeRateAmount,
+            _fee,
+            PRECISION,
+            Math.Rounding.Ceil
+        );
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         _validateOutputs(GHO, amountOut, minAmountOut);

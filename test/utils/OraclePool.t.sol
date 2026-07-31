@@ -170,7 +170,8 @@ contract OraclePoolTest is Test {
         amountA = bound(amountA, 0.01e18, 100e18);
         amountB = bound(amountB, 0.01e18, 100e18);
 
-        uint256 feeA = (amountA * fee) / PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeA = (amountA * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutA = ((amountA - feeA) * 1e18) / price;
 
         tokenOut.mint(
@@ -202,7 +203,7 @@ contract OraclePoolTest is Test {
             "test_Fuzz_Deposit::2"
         );
 
-        uint256 feeB = (amountB * fee) / PRECISION;
+        uint256 feeB = (amountB * fee + PRECISION - 1) / PRECISION;
         uint256 expectedOutB = ((amountB - feeB) * 1e18) / price;
 
         vm.prank(bob);
@@ -233,7 +234,8 @@ contract OraclePoolTest is Test {
 
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        uint256 feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
+        uint256 feeAmount = (amountIn * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         uint256 amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         vm.prank(msgSender);
@@ -290,7 +292,7 @@ contract OraclePoolTest is Test {
         price = bound(price, price + 1, 200e18);
         dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
 
-        feeAmount = (amountIn * oraclePool.getFee()) / PRECISION;
+        feeAmount = (amountIn * oraclePool.getFee() + PRECISION - 1) / PRECISION;
         amountOut = ((amountIn - feeAmount) * 1e18) / price;
 
         oraclePool.deposit(bob, amountIn, amountOut);
@@ -425,5 +427,129 @@ contract OraclePoolTest is Test {
 
         oraclePool.sweep(address(tokenOut), address(this), 0);
         oraclePool.sweep(address(tokenIn), address(this), 0);
+    }
+
+    /// @dev deposit: the fee must round UP so the pool never gives out more
+    /// `SGHO` than intended. 101 wei in at a 1% fee and 1:1 price yields a
+    /// fractional fee (1.01), which must round to 2 rather than 1.
+    function test_Deposit_RoundsFeeUp() public {
+        oraclePool.setFee(0.01e18);
+        dataFeed.set(1e18, 1, 0, block.timestamp, 1);
+
+        uint256 amountIn = 101;
+
+        uint256 feeFloor = (amountIn * 0.01e18) / PRECISION; // 1
+        uint256 feeCeil = (amountIn * 0.01e18 + PRECISION - 1) / PRECISION; // 2
+        assertEq(feeFloor, 1, "test_Deposit_RoundsFeeUp::1");
+        assertEq(feeCeil, 2, "test_Deposit_RoundsFeeUp::2");
+
+        uint256 naiveOut = ((amountIn - feeFloor) * 1e18) / 1e18; // 100 (user-favourable)
+        uint256 expectedOut = ((amountIn - feeCeil) * 1e18) / 1e18; // 99 (pool-favourable)
+
+        tokenOut.mint(address(oraclePool), 1e18);
+        tokenIn.mint(sender, amountIn);
+
+        vm.startPrank(sender);
+        tokenIn.approve(address(oraclePool), amountIn);
+        uint256 amountOut = oraclePool.deposit(alice, amountIn, expectedOut);
+        vm.stopPrank();
+
+        assertEq(amountOut, expectedOut, "test_Deposit_RoundsFeeUp::3");
+        assertLt(amountOut, naiveOut, "test_Deposit_RoundsFeeUp::4");
+    }
+
+    /// @dev redeem: the fee must round UP so the pool never gives out more
+    /// `GHO` than intended.
+    function test_Redeem_RoundsFeeUp() public {
+        oraclePool.setFee(0.01e18);
+        dataFeed.set(1e18, 1, 0, block.timestamp, 1);
+
+        uint256 amountIn = 101;
+
+        uint256 exchangeRateAmount = (amountIn * 1e18) / PRECISION; // 101
+        uint256 feeFloor = (exchangeRateAmount * 0.01e18) / PRECISION; // 1
+        uint256 feeCeil = (exchangeRateAmount * 0.01e18 + PRECISION - 1) /
+            PRECISION; // 2
+        assertEq(feeCeil, feeFloor + 1, "test_Redeem_RoundsFeeUp::1");
+
+        uint256 naiveOut = exchangeRateAmount - feeFloor; // 100 (user-favourable)
+        uint256 expectedOut = exchangeRateAmount - feeCeil; // 99 (pool-favourable)
+
+        tokenIn.mint(address(oraclePool), 1e18);
+        tokenOut.mint(sender, amountIn);
+
+        vm.startPrank(sender);
+        tokenOut.approve(address(oraclePool), amountIn);
+        uint256 amountOut = oraclePool.redeem(alice, amountIn, expectedOut);
+        vm.stopPrank();
+
+        assertEq(amountOut, expectedOut, "test_Redeem_RoundsFeeUp::2");
+        assertEq(
+            tokenIn.balanceOf(alice),
+            expectedOut,
+            "test_Redeem_RoundsFeeUp::3"
+        );
+        assertLt(amountOut, naiveOut, "test_Redeem_RoundsFeeUp::4");
+    }
+
+    /// @dev Invariant: for any price/amount/fee, deposit must never return more
+    /// than the user-favourable (floor-fee) computation. Rounding only ever
+    /// benefits the pool.
+    function test_Fuzz_Deposit_RoundingFavorsPool(
+        uint256 price,
+        uint256 amountIn,
+        uint96 newFee
+    ) public {
+        price = bound(price, 0.01e18, 100e18);
+        amountIn = bound(amountIn, 0.01e18, 100e18);
+        oraclePool.setFee(uint96(bound(newFee, 0, uint96(PRECISION))));
+
+        dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
+
+        uint256 feeFloor = (amountIn * oraclePool.getFee()) / PRECISION;
+        uint256 naiveOut = ((amountIn - feeFloor) * 1e18) / price;
+
+        tokenOut.mint(address(oraclePool), (amountIn * 1e18) / price + 1);
+        tokenIn.mint(sender, amountIn);
+
+        vm.startPrank(sender);
+        tokenIn.approve(address(oraclePool), amountIn);
+        uint256 amountOut = oraclePool.deposit(alice, amountIn, 0);
+        vm.stopPrank();
+
+        assertLe(
+            amountOut,
+            naiveOut,
+            "test_Fuzz_Deposit_RoundingFavorsPool::1"
+        );
+    }
+
+    /// @dev Invariant: for any price/amount/fee, redeem must never return more
+    /// than the user-favourable (floor-fee) computation.
+    function test_Fuzz_Redeem_RoundingFavorsPool(
+        uint256 price,
+        uint256 amountIn,
+        uint96 newFee
+    ) public {
+        price = bound(price, 0.01e18, 100e18);
+        amountIn = bound(amountIn, 0.01e18, 100e18);
+        oraclePool.setFee(uint96(bound(newFee, 0, uint96(PRECISION))));
+
+        dataFeed.set(int256(price), 1, 0, block.timestamp, 1);
+
+        uint256 exchangeRateAmount = (amountIn * price) / PRECISION;
+        uint256 feeFloor = (exchangeRateAmount * oraclePool.getFee()) /
+            PRECISION;
+        uint256 naiveOut = exchangeRateAmount - feeFloor;
+
+        tokenIn.mint(address(oraclePool), exchangeRateAmount + 1);
+        tokenOut.mint(sender, amountIn);
+
+        vm.startPrank(sender);
+        tokenOut.approve(address(oraclePool), amountIn);
+        uint256 amountOut = oraclePool.redeem(alice, amountIn, 0);
+        vm.stopPrank();
+
+        assertLe(amountOut, naiveOut, "test_Fuzz_Redeem_RoundingFavorsPool::1");
     }
 }

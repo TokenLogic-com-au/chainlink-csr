@@ -182,7 +182,9 @@ contract CustomSenderReferralTest is Test {
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
-        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmountIn = (amountIn * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
         token.mint(address(oraclePool), amountOut);
@@ -274,8 +276,11 @@ contract CustomSenderReferralTest is Test {
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
-        uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmount = (exchangeRateAmount *
+            oraclePool.getFee() +
+            PRECISION -
+            1) / PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
