@@ -42,6 +42,8 @@ The `slowStake` function from the [CustomSender](contracts/senders/CustomSender.
 - ORACLE_POOL: The oracle pool address on the L2 chain (if fast stake is enabled, otherwise set to `0x0`)
 - initialAdmin: The initial admin address for the contract that will be granted the `ADMIN_ROLE`
 
+Note: the base `CCIPSenderUpgradeable` also carries a `minProcessMessageGas` guard (default `400_000`) that rejects any `sync` whose encoded `gasLimit` — either in `feeData` or in a supplied `GenericExtraArgsV3` `extraArgs` — falls below it. It's admin-tunable post-deploy via `setMinProcessMessageGas(uint32)`.
+
 #### Custom Receiver parameters:
 
 - TOKEN: The staked token address on the L1 chain
@@ -148,6 +150,17 @@ Routine maintenance is owner-gated:
 
 If you observe the pool reverting with `OraclePoolInvalidPrice` after an oracle incident, the recovery path is: identify the true price at a recent past timestamp (within the 180-day window) → call `setCapParameters` with that snapshot → the pool resumes.
 
+#### How do I raise or lower the minimum gas that a `sync` message is allowed to encode?
+
+The base [CCIPSenderUpgradeable](contracts/ccip/CCIPSenderUpgradeable.sol) enforces a `minProcessMessageGas` floor (default `400_000`) on any `sync` call: the `gasLimit` decoded from `feeData` — and, if a `GenericExtraArgsV3` blob is supplied, its embedded `gasLimit` — must be at least this value, or the call reverts with `CCIPSenderInsufficientGas`.
+
+If the destination chain's actual per-message gas usage changes (a chain upgrade, a heavier receiver, etc.), the admin can retune it via `setMinProcessMessageGas(uint32)`. Two things to know:
+
+- `msg.sender` must have `DEFAULT_ADMIN_ROLE`.
+- The value must be non-zero — passing `0` reverts with `CCIPSenderInvalidGasLimit` (a zero floor would disable the guard entirely).
+
+Emits `MinProcessMessageGasSet(oldGasLimit, newGasLimit)`.
+
 #### How does fee work? What are OtoD and DtoO fees and how should I set them?
 
 At the smart contract level, the [fee codec library](contracts/libraries/FeeCodec.sol) manages encoding and decoding of fees before it is used by the `ccipSend()` or other bridging functions
@@ -245,6 +258,7 @@ This repository uses yarn for package management and foundry for smart contract 
 ### Offchain Library
 
 For TypeScript utilities and off-chain tools, see the **[Offchain README](offchain/README.md)** which provides:
+
 - TypeScript code for interacting with the contracts
 - Examples for liquid staking protocols (Lido)
 - Fast stake estimation and execution tools
