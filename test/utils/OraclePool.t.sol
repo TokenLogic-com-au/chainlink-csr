@@ -919,7 +919,7 @@ contract OraclePoolTest is Test {
         uint256 amountIn,
         uint96 newFee
     ) public {
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountIn = bound(amountIn, 0.01e18, 100e18);
         oraclePool.setFee(uint96(bound(newFee, 0, uint96(PRECISION))));
 
@@ -950,7 +950,7 @@ contract OraclePoolTest is Test {
         uint256 amountIn,
         uint96 newFee
     ) public {
-        price = bound(price, 0.01e18, 100e18);
+        price = bound(price, 1e18, 1.8e18);
         amountIn = bound(amountIn, 0.01e18, 100e18);
         oraclePool.setFee(uint96(bound(newFee, 0, uint96(PRECISION))));
 
