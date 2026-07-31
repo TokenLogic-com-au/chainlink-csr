@@ -34,6 +34,8 @@ contract DeployContractsTest is Test {
         dataFeed = new MockDataFeed(18);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
         script = new DeployContracts();
+
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
     }
 
     function test_DeployInitializesAtomically() public {
@@ -120,6 +122,7 @@ contract DeployContractsTest is Test {
                 priceOracle: address(priceOracle),
                 oraclePoolFee: 0,
                 oraclePoolOwner: admin,
+                maxYearlyGrowthBps: 425,
                 vault: vault,
                 admin: admin
             });

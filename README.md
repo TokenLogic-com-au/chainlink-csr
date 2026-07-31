@@ -104,6 +104,7 @@ The automation contract will trigger the sync function in the CustomSender contr
 - DATAFEED_IS_INVERSE : If the data feed is inverted, i.e. the price returned is the inverse of the price wanted. Note that the price is used by the oracle pool to calculate the amount of TOKEN_OUT to be sent to the user using the formula `amountOut = amountIn * (1e18 - fee) / price`.
 - DATAFEED_HEARTBEAT: The maximum time between data feed updates.
 - ORACLE_POOL_FEE: If a protocol wishes to charge a fee in the case of a fast stake (The fee to be applied to each swap (in 1e18 scale)).
+- MAX_YEARLY_GROWTH_BPS: The maximum yearly growth allowed for the OraclePool's price cap (in basis points; e.g. `500` = 5% / yr). The cap acts as an upper bound on the oracle reading used for swaps — `cap = snapshot + perSecondGrowth * elapsed` — and protects against a glitched or manipulated oracle spike. Should be set with some headroom above the underlying asset's expected accrual rate. The initial snapshot is auto-seeded from the oracle reading at deploy.
 
 ## How to adapt the contracts to your own LST/LRT
 
@@ -136,6 +137,18 @@ Keeping the Chainlink upkeep funded:
 
 Ensuring there are no errors in the `automation` / `performUpkeep` logic.
 Refilling bootstrapping liquidity (if needed).
+
+#### How does the OraclePool's price cap work, and what do I need to do to maintain it?
+
+The [OraclePool](contracts/utils/OraclePool.sol) clips the oracle reading it accepts to `snapshot + (perSecondGrowth * elapsed)` — a linear upper bound that grows from a stored `(snapshotPrice, snapshotTimestamp)` reference at the rate of `MAX_YEARLY_GROWTH_BPS`. A glitched or manipulated oracle spike above the cap is silently clipped to the cap value, so it cannot drain the pool. Independently, the pool also enforces a monotonic invariant: a reading below the previously accepted price reverts with `OraclePoolInvalidPrice`.
+
+Routine maintenance is owner-gated:
+
+- **Adjust the growth rate**: `setMaxYearlyGrowthBps(uint16)` when the underlying yield rate changes materially (e.g. APR rises from 4% to 10%). Snapshot is not touched. Note: lowering this enough that the resulting cap falls below the current `_lastPrice` will brick swaps until a re-snapshot.
+- **Re-snapshot**: `setCapParameters(snapshotPrice, snapshotTimestamp, maxYearlyGrowthBps)` when the snapshot becomes stale (max term is 180 days), or to recover after an oracle incident. The `snapshotTimestamp` must be strictly newer than the stored one, no younger than `now - 1 day`, and no older than `now - 180 days`. This call also resets `_lastPrice` so a stuck-high reading from a prior spike doesn't keep blocking swaps.
+- **Replace the oracle**: `setOracle(newOracle)` is safe to call for maintenance. The accrued cap value is preserved across the replacement — the growth budget already earned is not lost. Any reading from the new oracle above the inherited cap is clipped until the cap re-accrues.
+
+If you observe the pool reverting with `OraclePoolInvalidPrice` after an oracle incident, the recovery path is: identify the true price at a recent past timestamp (within the 180-day window) → call `setCapParameters` with that snapshot → the pool resumes.
 
 #### How do I raise or lower the minimum gas that a `sync` message is allowed to encode?
 
@@ -245,6 +258,7 @@ This repository uses yarn for package management and foundry for smart contract 
 ### Offchain Library
 
 For TypeScript utilities and off-chain tools, see the **[Offchain README](offchain/README.md)** which provides:
+
 - TypeScript code for interacting with the contracts
 - Examples for liquid staking protocols (Lido)
 - Fast stake estimation and execution tools

@@ -36,6 +36,7 @@ contract DeployContracts is ScriptHelper {
         address priceOracle;
         uint96 oraclePoolFee;
         address oraclePoolOwner;
+        uint16 maxYearlyGrowthBps;
         address vault;
         address admin;
     }
@@ -48,6 +49,7 @@ contract DeployContracts is ScriptHelper {
             priceOracle: vm.envAddress("PRICE_ORACLE"),
             oraclePoolFee: uint96(vm.envUint("ORACLE_POOL_FEE")),
             oraclePoolOwner: vm.envAddress("ORACLE_POOL_OWNER"),
+            maxYearlyGrowthBps: uint16(vm.envUint("MAX_YEARLY_GROWTH_BPS")),
             vault: vm.envAddress("VAULT"),
             admin: vm.envAddress("ADMIN")
         });
@@ -77,7 +79,8 @@ contract DeployContracts is ScriptHelper {
                 config.sgho,
                 config.priceOracle,
                 config.oraclePoolFee,
-                config.oraclePoolOwner
+                config.oraclePoolOwner,
+                config.maxYearlyGrowthBps
             )
         );
 
