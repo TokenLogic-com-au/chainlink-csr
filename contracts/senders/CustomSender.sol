@@ -23,9 +23,6 @@ import {ICustomSender} from "../interfaces/ICustomSender.sol";
 contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     using SafeERC20 for IERC20;
 
-    /// @dev The minimum gas to process the message.
-    uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
-
     bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
 
     // https://docs.chain.link/ccip/directory/mainnet/chain/mainnet
@@ -177,7 +174,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * - `amount` must be greater than 0.
      * - `token` must be either `GHO` or `SGHO`.
      * - The oracle pool must be set.
-     * - The gas limit encoded in `feeData` must be at least `MIN_PROCESS_MESSAGE_GAS`.
+     * - The gas limit encoded in `feeData` must be at least `minProcessMessageGas`.
+     * - If `extraArgs` is non-empty, the `gasLimit` it encodes (as `GenericExtraArgsV3`) must also be at least `minProcessMessageGas`.
      *
      * Emits a {Sync} event.
      */
@@ -217,6 +215,22 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         );
 
         return messageId;
+    }
+
+    /// @inheritdoc ICustomSender
+    function refundOraclePool(
+        address token,
+        uint256 amount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(amount > 0, CustomSenderZeroAmount());
+        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
+
+        address oraclePool = _getCustomSenderStorage().oraclePool;
+        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+
+        IERC20(token).safeTransfer(oraclePool, amount);
+
+        emit OraclePoolRefunded(oraclePool, token, amount);
     }
 
     /**
@@ -303,10 +317,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             feeData
         );
 
-        require(
-            gasLimit >= MIN_PROCESS_MESSAGE_GAS,
-            CustomSenderInsufficientGas()
-        );
+        require(gasLimit >= minProcessMessageGas, CCIPSenderInsufficientGas());
 
         return
             _ccipSend(

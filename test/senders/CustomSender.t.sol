@@ -10,6 +10,7 @@ import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/ccip/CCIPBaseUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../mocks/MockERC20.sol";
 import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
@@ -36,17 +37,22 @@ contract CustomSenderTest is Test {
         gho = new MockERC20("GHO", "GHO", 18);
         ccipRouter = new MockCCIPRouter(address(gho), GHO_FEE, NATIVE_FEE);
         dataFeed = new MockDataFeed(18);
+        // sGHO/GHO ratio starts at 1.0 and grows with staking yield.
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
 
         sgho = new MockERC20("sGho", "sGHO", 18);
 
+        // Cap parameters: 20% / yr (realistic DeFi peak rate), so after 6 years the linear cap
+        // accumulates to ~2.2e18 — just above the fuzz price ceiling of 2e18 below.
         oraclePool = new OraclePool(
             _predictContractAddress(1),
             address(gho),
             address(sgho),
             address(priceOracle),
             GHO_FEE,
-            address(this)
+            address(this),
+            2000
         );
         sender = new CustomSender(
             address(sgho),
@@ -56,6 +62,8 @@ contract CustomSenderTest is Test {
             vault,
             address(this)
         );
+        vm.warp(block.timestamp + 6 * 365 days);
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
     }
 
     function test_Constructor() public {
@@ -297,12 +305,14 @@ contract CustomSenderTest is Test {
     }
 
     function test_Fuzz_Deposit(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
-        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmountIn = (amountIn * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
         sgho.mint(address(oraclePool), amountOut);
@@ -381,14 +391,17 @@ contract CustomSenderTest is Test {
     }
 
     function test_Fuzz_Redeem(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
-        uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmount = (exchangeRateAmount *
+            oraclePool.getFee() +
+            PRECISION -
+            1) / PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
@@ -461,11 +474,7 @@ contract CustomSenderTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
         gasLimitOtoD = uint32(
-            bound(
-                gasLimitOtoD,
-                sender.MIN_PROCESS_MESSAGE_GAS(),
-                type(uint32).max
-            )
+            bound(gasLimitOtoD, sender.minProcessMessageGas(), type(uint32).max)
         );
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
@@ -602,7 +611,9 @@ contract CustomSenderTest is Test {
         );
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderInsufficientGas.selector);
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
     }
 
@@ -642,7 +653,7 @@ contract CustomSenderTest is Test {
         bytes memory receiver = abi.encode(makeAddr("receiver"));
         uint256 amountToSync = 1e18;
         address refundAddress = makeAddr("localRefund");
-        uint32 gasLimitOtoD = sender.MIN_PROCESS_MESSAGE_GAS();
+        uint32 gasLimitOtoD = sender.minProcessMessageGas();
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
         sender.grantRole(sender.SYNC_ROLE(), address(this));
@@ -678,20 +689,134 @@ contract CustomSenderTest is Test {
                 Client.EVMExtraArgsV1({gasLimit: gasLimitOtoD})
             )
         });
+    }
 
+    function test_Revert_Sync_InsufficientGasInExtraArgs() public {
+        bytes memory receiver = new bytes(1);
+        uint256 amountToSync = 1e18;
+
+        sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
+        sender.grantRole(sender.SYNC_ROLE(), address(this));
+        gho.mint(address(oraclePool), amountToSync);
+
+        bytes memory feeData = FeeCodec.encodeCCIP(
+            NATIVE_FEE,
+            false,
+            sender.minProcessMessageGas()
+        );
+
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
+        bytes memory extraArgs = abi.encodeWithSelector(
+            ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+            args
+        );
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
         sender.sync{value: NATIVE_FEE}(
             address(gho),
             amountToSync,
             0,
-            feeOtoD,
-            new bytes(0)
+            feeData,
+            extraArgs
         );
+    }
+
+    function test_Fuzz_RefundOraclePool(uint256 amount) public {
+        amount = bound(amount, 1, 100e18);
+
+        // GHO refund path.
+        gho.mint(address(sender), amount);
+
+        uint256 poolBefore = gho.balanceOf(address(oraclePool));
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolRefunded(
+            address(oraclePool),
+            address(gho),
+            amount
+        );
+        sender.refundOraclePool(address(gho), amount);
 
         assertEq(
-            ccipRouter.data(),
-            abi.encode(ETHEREUM_CHAIN_SELECTOR, message),
-            "test_Sync_WithLocalRefundAddress::1"
+            gho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_RefundOraclePool::1"
         );
+        assertEq(
+            gho.balanceOf(address(oraclePool)),
+            poolBefore + amount,
+            "test_Fuzz_RefundOraclePool::2"
+        );
+
+        // sGHO refund path (same flow, different token).
+        sgho.mint(address(sender), amount);
+
+        uint256 sghoPoolBefore = sgho.balanceOf(address(oraclePool));
+
+        vm.expectEmit(true, true, true, true, address(sender));
+        emit ICustomSender.OraclePoolRefunded(
+            address(oraclePool),
+            address(sgho),
+            amount
+        );
+        sender.refundOraclePool(address(sgho), amount);
+
+        assertEq(
+            sgho.balanceOf(address(sender)),
+            0,
+            "test_Fuzz_RefundOraclePool::3"
+        );
+        assertEq(
+            sgho.balanceOf(address(oraclePool)),
+            sghoPoolBefore + amount,
+            "test_Fuzz_RefundOraclePool::4"
+        );
+    }
+
+    function test_Fuzz_Revert_RefundOraclePool(uint256 amount) public {
+        amount = bound(amount, 1, 100e18);
+
+        // Non-admin caller reverts via AccessControl.
+        address notAdmin = makeAddr("notAdmin");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                notAdmin,
+                sender.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(notAdmin);
+        sender.refundOraclePool(address(gho), amount);
+
+        // Zero amount reverts.
+        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        sender.refundOraclePool(address(gho), 0);
+
+        // Wrong token reverts.
+        vm.expectRevert(ICustomSender.CustomSenderInvalidToken.selector);
+        sender.refundOraclePool(address(1), amount);
+
+        // Oracle pool unset reverts.
+        sender.setOraclePool(address(0));
+
+        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        sender.refundOraclePool(address(gho), amount);
+
+        sender.setOraclePool(address(oraclePool));
+
+        // Contract holds no GHO — safeTransfer reverts with ERC20InsufficientBalance.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector,
+                address(sender),
+                0,
+                amount
+            )
+        );
+        sender.refundOraclePool(address(gho), amount);
     }
 
     receive() external payable {}

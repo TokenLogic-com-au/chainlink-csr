@@ -50,7 +50,7 @@ export const TESTING_AMOUNTS = {
 
 /**
  * Gas limit multiplier for CCIP operations.
- * The contract defines MIN_PROCESS_MESSAGE_GAS = 75,000 as minimum.
+ * The contract defines minProcessMessageGas = 75,000 as minimum.
  * Standard operations use 1,000,000 gas (75,000 * 13.33 ≈ 1,000,000).
  */
 export const SLOWSTAKE_GAS_LIMIT_MULTIPLIER = 13;
