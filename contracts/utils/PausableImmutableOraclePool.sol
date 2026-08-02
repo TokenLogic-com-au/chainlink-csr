@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
+import {IOraclePool} from "../interfaces/IOraclePool.sol";
 import {OraclePool} from "./OraclePool.sol";
 
 /**
@@ -13,7 +14,10 @@ import {OraclePool} from "./OraclePool.sol";
  * `redeem`, and `pull` functions from being called.
  */
 contract PausableImmutableOraclePool is OraclePool, Pausable {
+    /// @dev The oracle or fee cannot be changed because they are immutable in this contract.
     error PausableImmutableOraclePoolImmutable();
+
+    /// @dev One or more of the constructor parameters is invalid (e.g. the oracle is the zero address).
     error PausableImmutableOraclePoolInvalidParameters();
 
     /**
@@ -52,12 +56,8 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
         );
     }
 
-    /**
-     * @dev Deposits `amountIn` of GHO token to receive sGHO
-     * Can only be called when the contract is not paused.
-     *
-     * Emits a {Deposit} event.
-     */
+    /// @inheritdoc IOraclePool
+    /// @dev Reverts if the contract is paused.
     function deposit(
         address recipient,
         uint256 exactAmountIn,
@@ -66,12 +66,8 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
         return super.deposit(recipient, exactAmountIn, minAmountOut);
     }
 
-    /**
-     * @dev Redeems `amountIn` of sGHO token to receive GHO
-     * Can only be called when the contract is not paused.
-     *
-     * Emits a {Redeem} event.
-     */
+    /// @inheritdoc IOraclePool
+    /// @dev Reverts if the contract is paused.
     function redeem(
         address recipient,
         uint256 exactAmountIn,
@@ -80,47 +76,40 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
         return super.redeem(recipient, exactAmountIn, minAmountOut);
     }
 
-    /**
-     * @dev Pulls `amount` of `token` from the contract and sends them to `msg.sender`.
-     * Can only be called when the contract is not paused.
-     *
-     * Requirements:
-     *
-     * - `token` must be equal to one of `GHO` or `SGHO`.
-     * - The `amount` of `token` to be pulled must be less than or equal to the amount of `token` available in the contract.
-     *
-     * Emits a {Pull} event.
-     */
+    /// @inheritdoc IOraclePool
+    /// @dev Reverts if the contract is paused.
     function pull(address token, uint256 amount) public override whenNotPaused {
         super.pull(token, amount);
     }
 
     /**
-     * @dev Pauses the contract.
-     * Only callable when the contract is not already paused.
+     * @dev Pauses the contract, preventing the `deposit`, `redeem` and `pull` functions from being called.
+     * Only callable by the owner when the contract is not already paused.
+     *
+     * Emits a {Paused} event.
      */
     function pause() public onlyOwner whenNotPaused {
         _pause();
     }
 
     /**
-     * @dev Unpauses the contract.
-     * Only callable when the contract is paused.
+     * @dev Unpauses the contract, re-enabling the `deposit`, `redeem` and `pull` functions.
+     * Only callable by the owner when the contract is paused.
+     *
+     * Emits an {Unpaused} event.
      */
     function unpause() public onlyOwner whenPaused {
         _unpause();
     }
 
-    /**
-     * @dev Prevents the oracle from being changed.
-     */
+    /// @inheritdoc IOraclePool
+    /// @dev Always reverts: the oracle is immutable in this contract.
     function setOracle(address) public pure override {
         revert PausableImmutableOraclePoolImmutable();
     }
 
-    /**
-     * @dev Prevents the fee from being changed.
-     */
+    /// @inheritdoc IOraclePool
+    /// @dev Always reverts: the fee is immutable in this contract.
     function setFee(uint96) public pure override {
         revert PausableImmutableOraclePoolImmutable();
     }

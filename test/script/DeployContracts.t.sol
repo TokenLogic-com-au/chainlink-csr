@@ -8,7 +8,7 @@ import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.s
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 
 import {DeployContracts} from "../../script/DeployContracts.sol";
-import {CustomSender} from "../../contracts/senders/CustomSender.sol";
+import {SwapHandler} from "../../contracts/senders/SwapHandler.sol";
 import {OraclePool} from "../../contracts/utils/OraclePool.sol";
 import {PriceOracle} from "../../contracts/utils/PriceOracle.sol";
 
@@ -49,21 +49,21 @@ contract DeployContractsTest is Test {
         // Atomic-init guarantee: a follow-up `initialize` call must revert, proving that initialization
         // happened in the same transaction as proxy deployment (no window for a front-runner).
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        CustomSender(proxy).initialize(oraclePool, vault, admin);
+        SwapHandler(proxy).initialize(oraclePool, vault, admin);
 
-        bytes32 adminRole = CustomSender(proxy).DEFAULT_ADMIN_ROLE();
+        bytes32 adminRole = SwapHandler(proxy).DEFAULT_ADMIN_ROLE();
 
         // Configured admin (and only that admin) holds DEFAULT_ADMIN_ROLE on the proxy.
         assertTrue(
-            CustomSender(proxy).hasRole(adminRole, admin),
+            SwapHandler(proxy).hasRole(adminRole, admin),
             "test_DeployInitializesAtomically::1"
         );
         assertFalse(
-            CustomSender(proxy).hasRole(adminRole, address(script)),
+            SwapHandler(proxy).hasRole(adminRole, address(script)),
             "test_DeployInitializesAtomically::2"
         );
         assertFalse(
-            CustomSender(proxy).hasRole(adminRole, address(this)),
+            SwapHandler(proxy).hasRole(adminRole, address(this)),
             "test_DeployInitializesAtomically::3"
         );
 
@@ -74,14 +74,14 @@ contract DeployContractsTest is Test {
             "test_DeployInitializesAtomically::4"
         );
         assertEq(
-            CustomSender(proxy).getOraclePool(),
+            SwapHandler(proxy).getOraclePool(),
             oraclePool,
             "test_DeployInitializesAtomically::5"
         );
 
         // Vault is set on proxy storage.
         assertEq(
-            CustomSender(proxy).getVault(),
+            SwapHandler(proxy).getVault(),
             vault,
             "test_DeployInitializesAtomically::6"
         );

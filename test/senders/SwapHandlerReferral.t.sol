@@ -5,8 +5,8 @@ import "forge-std/Test.sol";
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import "../../contracts/senders/CustomSenderReferral.sol";
-import "../../contracts/senders/CustomSender.sol";
+import "../../contracts/senders/SwapHandlerReferral.sol";
+import "../../contracts/senders/SwapHandler.sol";
 import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
@@ -17,8 +17,8 @@ import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
 import "../mocks/MockDataFeed.sol";
 
-contract CustomSenderReferralTest is Test {
-    CustomSenderReferral public sender;
+contract SwapHandlerReferralTest is Test {
+    SwapHandlerReferral public sender;
     PriceOracle public priceOracle;
     OraclePool public oraclePool;
 
@@ -61,7 +61,7 @@ contract CustomSenderReferralTest is Test {
             address(this),
             2000
         );
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(ccipRouter),
@@ -74,7 +74,7 @@ contract CustomSenderReferralTest is Test {
     }
 
     function test_Constructor() public {
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(ccipRouter),
@@ -103,8 +103,8 @@ contract CustomSenderReferralTest is Test {
     }
 
     function test_Revert_Constructor() public {
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSenderReferral(
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
             address(0),
             address(gho),
             address(ccipRouter),
@@ -116,7 +116,7 @@ contract CustomSenderReferralTest is Test {
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInvalidParameters.selector
         );
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(token),
             address(0),
             address(ccipRouter),
@@ -125,8 +125,8 @@ contract CustomSenderReferralTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSenderReferral(
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
             address(token),
             address(token),
             address(ccipRouter),
@@ -138,7 +138,7 @@ contract CustomSenderReferralTest is Test {
         vm.expectRevert(
             ICCIPBaseUpgradeable.CCIPBaseInvalidParameters.selector
         );
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(0),
@@ -148,7 +148,7 @@ contract CustomSenderReferralTest is Test {
         );
 
         // Should not revert, we allow the oracle pool to be set to address(0) to disable fast stake
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(ccipRouter),
@@ -157,8 +157,8 @@ contract CustomSenderReferralTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAddress.selector);
-        sender = new CustomSenderReferral(
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAddress.selector);
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(ccipRouter),
@@ -167,8 +167,8 @@ contract CustomSenderReferralTest is Test {
             address(this)
         );
 
-        vm.expectRevert(ICustomSender.CustomSenderInvalidParameters.selector);
-        sender = new CustomSenderReferral(
+        vm.expectRevert(ISwapHandler.SwapHandlerInvalidParameters.selector);
+        sender = new SwapHandlerReferral(
             address(token),
             address(gho),
             address(ccipRouter),
@@ -234,14 +234,14 @@ contract CustomSenderReferralTest is Test {
         dataFeed.set(1e18, 1, block.timestamp, block.timestamp, 1);
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
         sender.depositReferral(amountIn, 0, address(0));
 
         sender.setOraclePool(address(oraclePool));
 
         address badToken = address(new MockERC20("BadToken", "BAD", 18));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
         sender.depositReferral(0, 0, address(0));
 
         vm.expectRevert(
@@ -266,7 +266,7 @@ contract CustomSenderReferralTest is Test {
         );
         sender.depositReferral(amountIn, 0, address(0));
 
-        sender = new CustomSenderReferral(
+        sender = new SwapHandlerReferral(
             address(badToken),
             address(gho),
             address(ccipRouter),
@@ -319,12 +319,12 @@ contract CustomSenderReferralTest is Test {
         dataFeed.set(1e18, 1, block.timestamp, block.timestamp, 1);
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
         sender.redeem(amountIn, 0);
 
         sender.setOraclePool(address(oraclePool));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
         sender.redeem(0, 0);
 
         vm.expectRevert(
@@ -463,10 +463,10 @@ contract CustomSenderReferralTest is Test {
 
         sender.setOraclePool(address(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderZeroAmount.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerZeroAmount.selector);
         sender.sync(address(gho), 0, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(ICustomSender.CustomSenderOraclePoolNotSet.selector);
+        vm.expectRevert(ISwapHandler.SwapHandlerOraclePoolNotSet.selector);
         sender.sync(address(gho), 1, 0, new bytes(0), new bytes(0));
 
         sender.setOraclePool(address(oraclePool));
@@ -494,9 +494,7 @@ contract CustomSenderReferralTest is Test {
         );
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
-        vm.expectRevert(
-            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
-        );
+        vm.expectRevert(ISwapHandler.SwapHandlerInsufficientGas.selector);
         sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
     }
 
@@ -516,7 +514,10 @@ contract CustomSenderReferralTest is Test {
 
         ExtraArgsCodec.GenericExtraArgsV3 memory args;
         args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
+        bytes memory extraArgs = abi.encodeWithSelector(
+            ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+            args
+        );
 
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector

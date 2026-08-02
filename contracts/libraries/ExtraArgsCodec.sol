@@ -1,9 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
+/**
+ * @title ExtraArgsCodec Library
+ * @dev Type definitions for the CCIP `GenericExtraArgsV3` extra-args blob.
+ * The blob is an ABI-encoded {GenericExtraArgsV3} struct prefixed with {GENERIC_EXTRA_ARGS_V3_TAG}, i.e.
+ * `abi.encodeWithSelector(GENERIC_EXTRA_ARGS_V3_TAG, args)`. When a sender supplies one, `CCIPSenderUpgradeable`
+ * decodes it to enforce the `minProcessMessageGas` floor on the embedded `gasLimit`, then forwards the blob to
+ * the CCIP router unmodified; every field beyond `gasLimit` is passed through without inspection. When no blob
+ * is supplied, the router receives an `EVMExtraArgsV1` built from the `gasLimit` encoded in the fee data instead.
+ *
+ * The struct mirrors Chainlink's own definition; see the CCIP documentation for the authoritative reference.
+ */
 library ExtraArgsCodec {
+    /// @dev The 4-byte tag that prefixes an ABI-encoded {GenericExtraArgsV3} blob. It is the only extra-args
+    /// version accepted: a non-empty blob carrying any other tag reverts with `CCIPSenderInvalidExtraArgsTag`.
     bytes4 public constant GENERIC_EXTRA_ARGS_V3_TAG = 0xa69dd4aa;
 
+    /// @dev The V3 extra-args payload accepted by the CCIP router.
     struct GenericExtraArgsV3 {
         /// @notice Gas limit for the callback on the destination chain. If the gas limit is zero and the message data
         /// length is also zero, no callback will be performed, even if a receiver is specified. A gas limit of zero is

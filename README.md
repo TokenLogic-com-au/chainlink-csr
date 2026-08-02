@@ -1,274 +1,151 @@
-# ChainLink Custom Sender-Receiver
+# ChainLink Custom Sender-Receiver (GHO / sGHO)
 
-The ChainLink Custom Sender-Receiver is a set of smart contracts that allow users to stake a token on a L2 and receive the L1 native token directly on the L2 chain. For example, a user can stake (W)ETH on Arbitrum or Optimism and receive wstETH directly on the same chain.
+A set of smart contracts that let users swap **GHO** for **sGHO** (and back) on a deployed chain at an exchange rate provided by a Chainlink oracle, while keeping the local liquidity pool rebalanced across chains using [Chainlink CCIP](https://docs.chain.link/ccip).
 
-## Fast Stake
+Users interact with a [`SwapHandler`](contracts/senders/SwapHandler.sol) on the deployed chain:
 
-The `fastStake` function from the [CustomSender](contracts/senders/CustomSender.sol) contract can be used to use a [OraclePool](contracts/utils/OraclePool.sol) to swap (W)ETH for a Liquid Staked Token (LST) on the same chain using an exchange rate oracle.
-The (W)ETH that accumulates in the pool can be sent to the L1 chain to mint the LST using the `sync` function from the [CustomSender](contracts/senders/CustomSender.sol) contract. The (W)ETH will be sent to the [CustomReceiver](contracts/receivers/CustomReceiver.sol) contract on the L1 chain that will mint the LST and send it back to the pool on the L2 chain.
+- `deposit` swaps `GHO` → `sGHO` through a local [`OraclePool`](contracts/utils/OraclePool.sol).
+- `redeem` swaps `sGHO` → `GHO` through the same pool.
 
-![alt text](images/fast_stake.png)
+Both swaps are instant and settled from the pool's inventory at the oracle rate (with an optional fee). To keep the pool solvent, an operator periodically calls `sync`, which moves accumulated inventory to Ethereum mainnet so it can be processed and the pool refilled.
 
-## Slow Stake
+## How it works
 
-The `slowStake` function from the [CustomSender](contracts/senders/CustomSender.sol) contract can be used to send (W)ETH to the [CustomReceiver](contracts/receivers/CustomReceiver.sol) contract on the L1 chain. The (W)ETH sent will be used to mint the LST and send it back to the user on the L2 chain.
+### Swapping (deposit / redeem)
 
-![alt text](images/slow_stake.png)
+`deposit` and `redeem` on the `SwapHandler` pull the user's tokens, forward them to the `OraclePool`, and send the swapped tokens straight back to the user. The pool prices the swap using an exchange-rate oracle (`sGHO` priced in `GHO`) and can apply a configurable fee that stays in the pool. Swaps succeed only while the pool holds enough of the output token; otherwise they revert (see the [FAQ](#frequently-asked-questions--troubleshooting)).
 
-## Key contracts:
+### Rebalancing (sync)
 
-[contracts/adapters](contracts/adapters): This folder has adapters for transferring messages/tokens via CCIP and other bridges. If your LST needs a new bridge to be used, you should write a similar adapter.
+As users swap, the pool's balance of one token grows while the other shrinks. An account holding the `SYNC_ROLE` calls `sync(token, amount, …)` on the `SwapHandler`, which pulls `amount` of `token` (`GHO` or `sGHO`) from the pool and bridges it to a receiver on **Ethereum mainnet** via CCIP. The mainnet receiver is the **Chainlink Cross-Chain Vault solution**, which is maintained in a separate repository and is therefore out of scope for this repo; it processes the synced tokens and returns value so the pool can be refilled.
 
-[contracts/automations/SyncAutomation.sol](contracts/automations/SyncAutomation.sol): CCIP + Chainlink Automation enabled contract to transfer WETH periodically from L2 to L1 (batched transfer with customizable delay parameters). This contract will be the upkeep contract for a Chainlink automation. This contract will also have an option to trigger the token transfer from L2 to L1 outside of the Automation set up. Note: When Chainlink Automation is used to trigger the periodic token transfer, you would need to register a custom logic upkeep and set this contract as the “target contract address” during the registration. This contract needs to be funded with WETH or LINK to pay for the ccip fee (it might also require some WETH to bridge from mainnet to L2, as some bridges requires a fee in WETH). The upkeep needs to be funded for Automation to trigger the performUpkeep based on the trigger conditions.
+The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by the caller (in the GHO fee token or in native token, as encoded in `feeData`). Any excess native value is refunded to the caller.
 
-[contracts/ccip](contracts/ccip): This contains the base contracts for the sender and receiver.
+## Key contracts
 
-[contracts/libraries/FeeCodec.sol](contracts/libraries/FeeCodec.sol): This implements functions to encode/decode fee related data.
+[`contracts/senders/SwapHandler.sol`](contracts/senders/SwapHandler.sol): The main user-facing contract. Implements `deposit` (GHO→sGHO) and `redeem` (sGHO→GHO) against the local `OraclePool`, and `sync` to rebalance the pool by bridging inventory to the mainnet vault via CCIP. Holds the oracle pool and vault addresses using [EIP-7201](https://eips.ethereum.org/EIPS/eip-7201) namespaced storage, and can be deployed directly or behind a proxy.
 
-[contracts/receivers](contracts/receivers): Implementation of custom receivers that have the logic to (a) receive the transferred token, (b) perform an action such as staking and (c) transfer the staked token back to the L2. Each project that implements this solution would need to build its own receiver contract using [CustomReceiver.sol](contracts/receivers/CustomReceiver.sol) contract as the base
+[`contracts/senders/SwapHandlerReferral.sol`](contracts/senders/SwapHandlerReferral.sol): Extends `SwapHandler` with `depositReferral`, which behaves like `deposit` but additionally emits a `Referral` event for off-chain attribution.
 
-[contracts/senders/CustomSender.sol](contracts/senders/CustomSender.sol): CCIP sender contract that initiates a programmable token transfer(PTT). In the case of LSTs, it sends WETH along with data attributes necessary for the execution of the logic on the destination chain. The two options described above (fast stake and slow stake) are implemented in this function. The ccipSend functions require encoded fee data values for origin-to-destination (L2-> L1 fee) and destination-to-origin fee (L1->L2 fee), both of which are paid for on the source chain. This contract will also have an option to trigger the token transfer from L2 to L1 outside of the Automation set up via the Sync() function.
+[`contracts/utils/OraclePool.sol`](contracts/utils/OraclePool.sol): Swaps `GHO` for `sGHO` (and vice versa) using an exchange-rate oracle, with an optional swap fee. Only the configured `SENDER` (the `SwapHandler`) may call the swap and `pull` functions; the owner may `sweep` tokens and update the oracle/fee. Not compatible with fee-on-transfer tokens.
 
-[contracts/utils/OraclePool.sol](contracts/utils/OraclePool.sol): A contract that implements a swap of `TOKEN_IN` for `TOKEN_OUT` using a Chainlink exchange rate oracle data feed. It is used by the [CustomSender](contracts/senders/CustomSender.sol) contract to swap `TOKEN_IN` for `TOKEN_OUT` (most of the time, WETH for a LST) during the fast stake process. If you don't wish to offer the fast stake option, you don't have to use this contract and can simply use `0x0` as the `oraclePool` parameter when deploying the [CustomSender](contracts/senders/CustomSender.sol) contract.
+[`contracts/utils/PausableImmutableOraclePool.sol`](contracts/utils/PausableImmutableOraclePool.sol): An `OraclePool` variant whose oracle and fee are immutable after deployment, and whose `deposit`, `redeem`, and `pull` can be paused/unpaused by the owner.
 
-## Key parameters to be set for deployment:
+[`contracts/utils/PriceOracle.sol`](contracts/utils/PriceOracle.sol): Wraps a Chainlink aggregator and returns the price scaled to 1e18, with optional inversion and a heartbeat-based staleness check.
 
-#### Custom Sender parameters:
+[`contracts/ccip`](contracts/ccip): Base contracts implementing the CCIP sending logic used by the `SwapHandler` (router wiring, fee handling, and trusted per-chain receivers).
 
-- TOKEN: The underlying token address on the L2 chain
-- WNATIVE: The wrapped native token address on the L2 chain
-- LINK_TOKEN: The LINK token address on the L2 chain
-- CCIP_ROUTER: The CCIP router address on the L2 chain
-- ORACLE_POOL: The oracle pool address on the L2 chain (if fast stake is enabled, otherwise set to `0x0`)
-- initialAdmin: The initial admin address for the contract that will be granted the `ADMIN_ROLE`
+[`contracts/adapters/BridgeAdapter.sol`](contracts/adapters/BridgeAdapter.sol): Abstract base for bridge adapters that are delegate-called to move tokens across chains. The `IBridgeAdapter` interface defines events for CCIP and the supported native bridges (Base, Optimism, Arbitrum, Frax Ferry, Linea); a concrete adapter implements `_sendToken` for a specific bridge. Adapters must not use storage to avoid collisions with their delegator.
 
-Note: the base `CCIPSenderUpgradeable` also carries a `minProcessMessageGas` guard (default `400_000`) that rejects any `sync` whose encoded `gasLimit` — either in `feeData` or in a supplied `GenericExtraArgsV3` `extraArgs` — falls below it. It's admin-tunable post-deploy via `setMinProcessMessageGas(uint32)`.
+[`contracts/libraries/FeeCodec.sol`](contracts/libraries/FeeCodec.sol): Encode/decode helpers for the bridge fee data (e.g. `encodeCCIP`, `encodeArbitrumL1toL2`, `encodeOptimismL1toL2`, `encodeBaseL1toL2`, `encodeFraxFerryL1toL2`, `encodeLineaL1toL2`).
 
-#### Custom Receiver parameters:
+[`contracts/libraries/ExtraArgsCodec.sol`](contracts/libraries/ExtraArgsCodec.sol): Type definitions for the CCIP `GenericExtraArgsV3` extra-args blob. A `sync` caller may supply one to control CCIP delivery (gas limit, finality, verifiers, executor); the sender decodes it only to enforce the `minProcessMessageGas` floor and otherwise forwards it to the router untouched.
 
-- TOKEN: The staked token address on the L1 chain
-- WNATIVE: The wrapped native token address on the L1 chain
-- CCIP_ROUTER: The CCIP router address on the L1 chain
-- initialAdmin: The initial admin address for the contract that will be granted the `ADMIN_ROLE`
+[`contracts/libraries/TokenHelper.sol`](contracts/libraries/TokenHelper.sol): Helpers for transferring ERC20 and native tokens and refunding excess native value.
 
-Additional parameters might be required depending on the specific implementation of the receiver contract (e.g., the address of the staking contract if it is different from the staked token address).
+## Roles and access control
 
-#### Adapter parameters:
+- **`SwapHandler` `DEFAULT_ADMIN_ROLE`** — set at initialization (`initialAdmin`). Can call `setOraclePool`, `setVault`, `setLocalRefundAddress`, `refundOraclePool`, and `setMinProcessMessageGas`, and manage roles.
+- **`SwapHandler` `SYNC_ROLE`** — may call `sync`. Grant this to the operator or automation account that rebalances the pool.
+- **`OraclePool` `SENDER`** — the `SwapHandler`; the only account allowed to call `deposit`, `redeem`, and `pull` on the pool.
+- **`OraclePool` owner** — can `sweep` tokens and (on the mutable pool) update the oracle and fee.
 
-Non-CCIP bridge contracts such as native bridge router contracts/custom bridge contracts
+## Key parameters for deployment
 
-#### Owner:
+### `SwapHandler` / `SwapHandlerReferral`
 
-if the owner should be different from the deployer, update the owner address from address(0) to the actual owner address
+- `sghoToken`: The `sGHO` token address on the deployed chain.
+- `ghoToken`: The `GHO` token address on the deployed chain (also used as the CCIP fee token).
+- `ccipRouter`: The CCIP router address on the deployed chain.
+- `oraclePool`: The `OraclePool` address (use `0x0` to deploy without swaps enabled; it can be set later via `setOraclePool`).
+- `vault`: The mainnet receiver (Chainlink Cross-Chain Vault) that `sync` bridges to. Must be non-zero.
+- `initialAdmin`: The address granted the `DEFAULT_ADMIN_ROLE`.
 
-#### Origin to Destination Fee parameters: (for example L2 -> L1)
+### `OraclePool` / `PausableImmutableOraclePool`
 
-- DESTINATION_MAX_FEE: Max fee used by the CCIP Router when calling sync for the origin to destination fee
-- DESTINATION_PAY_IN_LINK: whether the fee should be paid in LINK or WETH
-- DESTINATION_GAS_LIMIT: This can be set after estimations during testing ; add a small buffer in case of complex / variable logic on the destination
+- `sender`: The `SwapHandler` allowed to drive swaps and pulls.
+- `gho` / `sgho`: The `GHO` and `sGHO` token addresses.
+- `oracle`: The exchange-rate oracle (a `PriceOracle`/`PriceConverterOracle`). For `PausableImmutableOraclePool` this must be non-zero.
+- `fee`: The swap fee applied to each swap, in 1e18 scale (e.g. `1e16` = 1%). Must be `<= 1e18`.
+- `initialOwner`: The pool owner.
+- `maxYearlyGrowthBps`: The maximum yearly growth allowed for the pool's price cap, in basis points (e.g. `500` = 5% / yr). The cap is an upper bound on the oracle reading used for swaps — `cap = snapshot + perSecondGrowth * elapsed` — and protects against a glitched or manipulated oracle spike. Set it with some headroom above `sGHO`'s expected accrual rate. The initial snapshot is auto-seeded from the oracle reading at deploy.
 
-#### Destination to Origin Fee parameters: (for example L1 -> L2)
+### `PriceOracle`
 
-Most of the time, bridges have different parameters requirements for the fee.
+- `aggregator`: The Chainlink aggregator address. `DECIMALS` is read from it directly.
+- `isInverse`: `true` if the price should be reported as `1 / price`.
+- `heartbeat`: Seconds after which the aggregator's answer is considered stale.
 
-##### CCIP:
+## Fees (sync via CCIP)
 
-- ORIGIN_MAX_FEE: Max fee used by the CCIP Router when calling sync for the destination to origin fee
-- ORIGIN_PAY_IN_LINK: whether the fee should be paid in LINK or WETH
-- ORIGIN_GAS_LIMIT: This can be set after estimations during testing ; add a small buffer in case of complex / variable logic on the origin
+`sync` bridges to Ethereum mainnet using CCIP. The fee data passed to `sync` is built with `FeeCodec.encodeCCIP(maxFee, payInLink, gasLimit)`:
 
-##### ARBITRUM:
+- `maxFee`: The maximum CCIP fee the caller is willing to pay. Estimate it with `getFee()` on the CCIP router and add a small buffer; any excess is refunded.
+- `payInLink` / fee token: Whether the CCIP fee is paid in the GHO fee token or native token.
+- `gasLimit`: The gas for processing the message on the destination chain. Must be at least `minProcessMessageGas`, which defaults to `400_000` and is admin-tunable via `setMinProcessMessageGas(uint32)`.
 
-- ORIGIN_MAX_SUBMISSION_COST: The maximum amount of ETH that can be spent on a single transaction
-- ORIGIN_MAX_GAS: The maximum amount of gas that can be spent on a single transaction
-- ORIGIN_GAS_PRICE_BID: The gas price bid for the transaction
+A `sync` caller may also supply an `extraArgs` blob to control CCIP delivery directly. It must be an ABI-encoded [`GenericExtraArgsV3`](contracts/libraries/ExtraArgsCodec.sol) prefixed with the `GENERIC_EXTRA_ARGS_V3_TAG` tag; any other tag reverts with `CCIPSenderInvalidExtraArgsTag`. The `gasLimit` it embeds is held to the same `minProcessMessageGas` floor as the one in `feeData`, and the rest of the blob is forwarded to the router untouched. Passing empty `extraArgs` falls back to an `EVMExtraArgsV1` built from the fee data's `gasLimit`.
 
-##### OPTIMISM/BASE:
+Front-ends and operators should use the same encoding (e.g. via JS) when constructing `feeData`.
 
-- ORIGIN_L2_GAS: The amount of gas used to cover the L2 execution cost
+## Frequently asked questions / troubleshooting
 
-##### FRAX_FERRY:
+### Protocol operators
 
-- no parameters required
+**What routine maintenance is required?**
+Keep the `SYNC_ROLE` account funded with enough of the CCIP fee token (GHO or native) to pay for periodic `sync` bridging, and monitor the pool's balances so it stays able to honor swaps.
 
-#### Automation Parameters:
+**How is `sync` triggered?**
+By any account holding the `SYNC_ROLE`, either manually or via an off-chain automation that holds the role. (This repo no longer ships an on-chain automation contract; automation, if used, lives off-chain or in a separate component.)
 
-- MIN_SYNC_AMOUNT: The minimum amount of ETH required to start the sync process by the automation contract - ie., to make the batching process efficient
-- MAX_SYNC_AMOUNT: The maximum amount of ETH that can be bridged in a single transaction by the automation contract, this value needs to be set carefully following the max ETH amount that can be bridged using CCIP and the max ETH fee (as it's also bridged). The capacity and rate limits of ETH transfers can be found on the Supported Networks page for each lane.
-- MIN_SYNC_DELAY: The minimum time between syncs by the automation contract, this value should be picked following the time required by the CCIP ETH bucket to refill and the LST/LRT update time.
-
-The automation contract will trigger the sync function in the CustomSender contract every `MIN_SYNC_DELAY` seconds if the balance of the automation contract is greater than `MIN_SYNC_AMOUNT`.
-
-#### Oracle parameters:
-
-- DATAFEED_IS_INVERSE : If the data feed is inverted, i.e. the price returned is the inverse of the price wanted. Note that the price is used by the oracle pool to calculate the amount of TOKEN_OUT to be sent to the user using the formula `amountOut = amountIn * (1e18 - fee) / price`.
-- DATAFEED_HEARTBEAT: The maximum time between data feed updates.
-- ORACLE_POOL_FEE: If a protocol wishes to charge a fee in the case of a fast stake (The fee to be applied to each swap (in 1e18 scale)).
-- MAX_YEARLY_GROWTH_BPS: The maximum yearly growth allowed for the OraclePool's price cap (in basis points; e.g. `500` = 5% / yr). The cap acts as an upper bound on the oracle reading used for swaps — `cap = snapshot + perSecondGrowth * elapsed` — and protects against a glitched or manipulated oracle spike. Should be set with some headroom above the underlying asset's expected accrual rate. The initial snapshot is auto-seeded from the oracle reading at deploy.
-
-## How to adapt the contracts to your own LST/LRT
-
-To adapt the contracts for new use case, the following steps need to be taken:
-
-#### Custom Receiver
-
-Implement the `_depositNative` from [CustomReceiver](contracts/receivers/CustomReceiver.sol#L155) and add the logic to mint the LST/LRT from native tokens. For example, wrap the ETH to weth, and then mint the LST/LRT. Don't forget to return the amount of LST/LRT tokens minted.
-
-Note that if the contract implementing the `_depositNative` function requires some values to be set in storage, it is very important to follow the EIP-7201 to prevent storage collisions. It is therefore very important to make sure that the hash used for the storage location is unique. It is highly recommended to use the following hash function to generate the storage location: `keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.<NAME_OF_THE_CONTRACT>")) - 1)) & ~bytes32(uint256(0xff))`.
-Do not forget to replace `<NAME_OF_THE_CONTRACT>` with the name of the contract, and that the name used is unique.
-
-#### Bridge Adapter
-
-If the bridge is not supported (currently, only the following bridges are supported: CCIP, Optimism native bridge, Arbitrum Native Bridge, Base native bridge and Frax Ferry), then the protocol needs to inherit the [BridgeAdapter](contracts/adapaters/BridgeAdapter.sol) contract and implement the `_sendToken` function.
-
-Note that bridge adapters should not store any data in storage, as this would lead to storage collisions.
-
-## Frequently Asked Questions / Troubleshooting:
-
-### PROTOCOL OPERATORS:
-
-#### As an operator, what is the routine maintenance I need to take care of?
-
-Keeping the Chainlink upkeep funded:
-
-- The upkeep on automation.chain.link should be funded with enough LINK to perform the necessary upkeeps
-- Needs ETH (if using native bridge) in this contract
-- Max cost of 1 bridging \* number of transactions expected (depends on the trigger parameters - delay)
-
-Ensuring there are no errors in the `automation` / `performUpkeep` logic.
-Refilling bootstrapping liquidity (if needed).
-
-#### How does the OraclePool's price cap work, and what do I need to do to maintain it?
-
-The [OraclePool](contracts/utils/OraclePool.sol) clips the oracle reading it accepts to `snapshot + (perSecondGrowth * elapsed)` — a linear upper bound that grows from a stored `(snapshotPrice, snapshotTimestamp)` reference at the rate of `MAX_YEARLY_GROWTH_BPS`. A glitched or manipulated oracle spike above the cap is silently clipped to the cap value, so it cannot drain the pool. Independently, the pool also enforces a monotonic invariant: a reading below the previously accepted price reverts with `OraclePoolInvalidPrice`.
+**How does the `OraclePool`'s price cap work, and what do I need to do to maintain it?**
+The [`OraclePool`](contracts/utils/OraclePool.sol) clips the oracle reading it accepts to `snapshot + (perSecondGrowth * elapsed)` — a linear upper bound growing from a stored `(snapshotPrice, snapshotTimestamp)` reference at the rate of `maxYearlyGrowthBps`. A glitched or manipulated spike above the cap is silently clipped to the cap value, so it cannot drain the pool. Independently, the pool enforces a monotonic invariant: a reading below the previously accepted price reverts with `OraclePoolInvalidPrice`.
 
 Routine maintenance is owner-gated:
 
-- **Adjust the growth rate**: `setMaxYearlyGrowthBps(uint16)` when the underlying yield rate changes materially (e.g. APR rises from 4% to 10%). Snapshot is not touched. Note: lowering this enough that the resulting cap falls below the current `_lastPrice` will brick swaps until a re-snapshot.
-- **Re-snapshot**: `setCapParameters(snapshotPrice, snapshotTimestamp, maxYearlyGrowthBps)` when the snapshot becomes stale (max term is 180 days), or to recover after an oracle incident. The `snapshotTimestamp` must be strictly newer than the stored one, no younger than `now - 1 day`, and no older than `now - 180 days`. This call also resets `_lastPrice` so a stuck-high reading from a prior spike doesn't keep blocking swaps.
-- **Replace the oracle**: `setOracle(newOracle)` is safe to call for maintenance. The accrued cap value is preserved across the replacement — the growth budget already earned is not lost. Any reading from the new oracle above the inherited cap is clipped until the cap re-accrues.
+- **Adjust the growth rate** — `setMaxYearlyGrowthBps(uint16)` when `sGHO`'s accrual rate changes materially. The snapshot is not touched. Lowering it far enough that the resulting cap falls below the current accepted price will brick swaps until a re-snapshot.
+- **Re-snapshot** — `setCapParameters(snapshotPrice, snapshotTimestamp, maxYearlyGrowthBps)` when the snapshot goes stale, or to recover after an oracle incident. `snapshotTimestamp` must be strictly newer than the stored one, at least 1 day old, and no more than 180 days old. This also resets the last accepted price, so a stuck-high reading from a prior spike stops blocking swaps.
+- **Replace the oracle** — `setOracle(newOracle)` is safe for maintenance. The accrued cap value carries across the replacement, so the growth budget already earned is not lost; any reading from the new oracle above the inherited cap is clipped until the cap re-accrues.
 
-If you observe the pool reverting with `OraclePoolInvalidPrice` after an oracle incident, the recovery path is: identify the true price at a recent past timestamp (within the 180-day window) → call `setCapParameters` with that snapshot → the pool resumes.
+If the pool starts reverting with `OraclePoolInvalidPrice` after an oracle incident, the recovery path is: establish the true price at a timestamp inside the 180-day window → call `setCapParameters` with that snapshot → swaps resume.
 
-#### How do I raise or lower the minimum gas that a `sync` message is allowed to encode?
+**How do I raise or lower the minimum gas a `sync` message may encode?**
+Two checks share one floor, `minProcessMessageGas` (default `400_000`), but report different errors:
 
-The base [CCIPSenderUpgradeable](contracts/ccip/CCIPSenderUpgradeable.sol) enforces a `minProcessMessageGas` floor (default `400_000`) on any `sync` call: the `gasLimit` decoded from `feeData` — and, if a `GenericExtraArgsV3` blob is supplied, its embedded `gasLimit` — must be at least this value, or the call reverts with `CCIPSenderInsufficientGas`.
+- The `gasLimit` decoded from `feeData` is checked by the `SwapHandler` and reverts with `SwapHandlerInsufficientGas`.
+- The `gasLimit` embedded in a supplied `GenericExtraArgsV3` blob is checked by [`CCIPSenderUpgradeable`](contracts/ccip/CCIPSenderUpgradeable.sol) and reverts with `CCIPSenderInsufficientGas`.
 
-If the destination chain's actual per-message gas usage changes (a chain upgrade, a heavier receiver, etc.), the admin can retune it via `setMinProcessMessageGas(uint32)`. Two things to know:
+If the destination chain's real per-message gas usage changes (a chain upgrade, a heavier receiver), an admin retunes the floor with `setMinProcessMessageGas(uint32)`. The caller must hold `DEFAULT_ADMIN_ROLE`, and the value must be non-zero — passing `0` reverts with `CCIPSenderInvalidGasLimit`, since a zero floor would disable the guard entirely. Emits `MinProcessMessageGasSet(oldGasLimit, newGasLimit)`.
 
-- `msg.sender` must have `DEFAULT_ADMIN_ROLE`.
-- The value must be non-zero — passing `0` reverts with `CCIPSenderInvalidGasLimit` (a zero floor would disable the guard entirely).
+**How do I return tokens to the pool after a failed `sync`?**
+When a CCIP `sync` fails, the refund goes to the message's initiator — this contract — not to the pool. An account with `DEFAULT_ADMIN_ROLE` calls `refundOraclePool(token, amount)` to move the stranded `GHO` or `sGHO` back, which emits `OraclePoolRefunded`. The destination-side refund recipient is configured separately via `setLocalRefundAddress`.
 
-Emits `MinProcessMessageGasSet(oldGasLimit, newGasLimit)`.
+### Front-end operators
 
-#### How does fee work? What are OtoD and DtoO fees and how should I set them?
+**Where do we get the exchange rate shown to users?**
+Read the swap rate from the configured oracle (the [`PriceOracle`](contracts/utils/PriceOracle.sol) used by the pool). Account for the pool fee and, if the CCIP fee is paid in native token rather than the GHO fee token, surface that separately.
 
-At the smart contract level, the [fee codec library](contracts/libraries/FeeCodec.sol) manages encoding and decoding of fees before it is used by the `ccipSend()` or other bridging functions
-Important: Front-ends should use the same logic at the front-end layer (ie., using JS libraries) to encode the fee for O->D and D->O fees
+**What do we pass as `minAmountOut`?**
+It is the minimum output you will accept for the swap. For a `deposit`, output ≈ `exactAmountIn * (1e18 - oraclePoolFee) / oraclePrice`. Apply a small slippage buffer to allow for the oracle rate updating between quoting and execution.
 
-##### Origin to Destination : feeOtoD : (L2 -> L1 in this case):
+**The pool didn't have enough output token — what error is returned?**
+The pool reverts with `OraclePoolInsufficientTokenOut` when its balance of the output token is insufficient to complete the swap. Front-ends can pre-check by querying the pool's token balances.
 
-Here, CCIP bridge is used for bridging, CCIP fee can be directly estimated using `getFee()` on the router. and should be encoded using the `encodeCCIP` from the FeeCodec library before being passed into the `ccipSend()` function. A slight buffer should be added to the fee to account for any changes in the fee between the calculation and the execution of the transaction as any excess fee will be refunded to the sender.
+**What does `OraclePoolInvalidPrice` mean?**
+The oracle reported a price lower than the previously recorded price. The pool rejects this to guard against a decreasing exchange rate; the system should be paused/investigated for that deployment when it occurs.
 
-##### Destination to Origin: feeDtoO: Other bridges:
-
-- When ARB L1 -> L2 bridge is used, `encodeArbitrumL1toL2` is used. In the case of ARB bridge, there is a certain fee, which can be estimated as follows:
-  `feeAmount = maxSubmissionCost + gasPriceBid * maxGas`
-  In the case of Automation-based sync for fast stake, the following values were used for testing and worked successfully. However, front-ends are requested to do due diligence to set appropriate values for this based on Arbitrum docs. https://docs.arbitrum.io/how-arbitrum-works/arbos/l1-l2-messaging#submission
-
-  ```solidity
-  ARBITRUM_ORIGIN_MAX_SUBMISSION_COST = 0.001e18;
-  ARBITRUM_ORIGIN_MAX_GAS = 100_000;
-  ARBITRUM_ORIGIN_GAS_PRICE_BID = 0.05e9;
-  ```
-
-- When OP L1 -> L2 bridge is used, `encodeOptimismL1toL2` is used passing in the parameter of L2 gas limit. (In the case of OP bridge, fees are 0 at the moment for L1 -> L2). The following value was used for testing and worked successfully. However, the actual gas limit should be set based on the actual gas usage of the transaction.
-
-  ```solidity
-  ORIGIN_L2_GAS = 100_000;
-  ```
-
-- When BASE L1 -> L2 bridge is used, `encodeBaseL1toL2` is used passing in the parameter of L2 gas limit. (In the case of BASE bridge, fees are 0 at the moment for L1 -> L2). The following value was used for testing and worked successfully. However, the actual gas limit should be set based on the actual gas usage of the transaction.
-
-  ```solidity
-  ORIGIN_L2_GAS = 100_000;
-  ```
-
-- When Frax bridge L1 -> L2 is used, `encodeFraxFerryL1toL2` is used. In the case of Frax Ferry, fees are 0 at the moment and require no parameters.
-- When CCIP bridge is used for bridging from L1 -> L2 (example: for EigenPie), CCIP fee can be directly estimated using `getFee()` on the router. and should be encoded using the `encodeCCIP` before being passed into the `ccipSend()` function. A slight buffer should be added to the fee to account for any changes in the fee between the calculation and the execution of the transaction. Note that any excess fee will be refunded to the sender, which is the custom receiver contract in this case.
-
-#### Can I, as a protocol operator, change the trigger parameters of the automation upkeep?
-
-Yes. The schedule for the upkeep can be updated via the `setDelay` on the [SyncAutomation.sol](contracts/automations/SyncAutomation.sol) contract.
-The minimum amount of WETH that needs to be in the OraclePool to initiate a sync as well as the maximum amount of WETH that can be sync’d at a given time can both be updated via the `setAmounts` parameter. Care should be taken to ensure that the max is less than the max pool capacity for WETH transfers via CCIP. The CCIP Supported Networks page provides details on the max capacity for WETH transfers on a given lane. This can also be queried using the `getCurrentOutboundRateLimiterState` function on the WETH pool address. The function returns the max capacity (4th output in the result set) as well as the current capacity (capacity at a given timestamp - 1st output in the result set)
-
-#### As an operator do I need to set up automation jobs for fast staking?
-
-As an operator, there are two ways to batch transfer WETH from L2 to L1 : Automated and manual.
-
-- Automated: We recommend setting up an automation upkeep using Chainlink Automation. Here are the steps:
-
-  1. After the SyncAutomation contract has been deployed, register a custom upkeep using Chainlink Automation.
-  2. The SyncAutomation contract should be used as the Target contract for the custom logic upkeep
-  3. Fund the upkeep with LINK
-  4. The values in your deployment parameters determine the initial values for the trigger conditions ; however this can be changed later using the SyncAutomation contract
-  5. The forwarder of the upkeep needs to be assigned a SYNC_ROLE in the CustomSender contract
-
-- Manual: There is also an option to manually trigger a WETH transfer using the sync() function in the CustomSender contract
-
-### FRONT-END OPERATORS:
-
-#### Where do we get the exchange rate to show the user how many LST tokens they will receive for depositing a certain amount of (W)ETH?
-
-Use the [PriceOracle](contracts/utils/PriceOracle.sol). Note that if the user is paying fees with ETH (and not LINK), then that should be deducted. If LINK is used for payment, then the fee in LINK is separately approved so the entire amount of ETH can be used for deposit
-
-#### If at the moment of transaction execution, the balance of the LST pool on L2 changes and is insufficient for the transaction, do we receive a specific error informing us of this?
-
-It will revert with a `OraclePoolInsufficientTokenOut` if the balance of the oraclePool is insufficient to send the tokens to the user
-
-#### How do we track the request status for Fast Stake?
-
-From a user / operator’s perspective, Fast Stake is instant, so either the user gets the token in the wallet or it would revert
-
-#### How do we track the request status for Slow Stake? <need to udpate>
-
-For SlowStake:
-
-- If the L1 -> L2 transfer is via native bridges: since the native bridges don't necessarily provide a message ID, it's not possible to completely track those. You can still track the L2 -> L1 leg of the journey. Typically we've seen BASE and OP L1 -> L2 bridges finish in roughly 3 mins and ARB bridge seems to be taking ~ 8-9 mins.
-- If the L1 -> L2 transfer is via CCIP, then its still possible to track the status based on the original message ID since the L1 -> L2 CCIP message is called within the receiver logic of the L2 -> L1 message
-
-#### For Fast Stake, what do we pass to minAmountOut when calling this from the front end?
-
-This is the minimum amount of the LST (wstETH) that you want from the oracle pool for the amount of ETH. This could be done as a dex where you input a « slippage » and that’s it, but if you want to be more precise, it could be set to amountIn _ (1e18 - oraclePoolFee) / oraclePrice and adding a slight wiggle room of 1 rebalance (in case the oracle gets updated in between, so something like `amountIn _ (1e18 - oraclePoolFee) / (oraclePrice \* (1e18 + 318e16 / 365) / 1e18)` (assuming a 3.18% APR))
-
-#### If the front-end needs to know if fast stake is not possible, is there a way they could monitor it?
-
-Yes, they can query the OraclePool’s balance to check this.
-
-#### Important notes for front ends:
-
-Use the proxy address for the custom sender contract (not implementation) to avoid errors during integration.
-
-If the OraclePool reverts with an `OraclePoolInvalidPrice` error code, then the system should be paused for that protocol. This is to catch the condition of when the exchange rate reported is less than the previously reported exchange rate., which could happen in the case of a slashing condition.
+**Notes for front-ends**
+Use the proxy address of the `SwapHandler` (not the implementation) when integrating.
 
 ## Usage
 
-This repository uses yarn for package management and foundry for smart contract development.
+This repository uses **yarn** for package management and **Foundry** for smart contract development. Solidity scripting helpers live in [`script/ScriptHelper.sol`](script/ScriptHelper.sol).
 
-### Offchain Library
+### Off-chain library
 
-For TypeScript utilities and off-chain tools, see the **[Offchain README](offchain/README.md)** which provides:
+The TypeScript utilities and off-chain tooling live in a separate repository and are no longer part of this repo.
 
-- TypeScript code for interacting with the contracts
-- Examples for liquid staking protocols (Lido)
-- Fast stake estimation and execution tools
-- Pool monitoring and trading rate analysis
-
-## Foundry Documentation
-
-https://book.getfoundry.sh/
-
-### Environment Setup
+### Environment setup
 
 First, install dependencies:
 
@@ -276,13 +153,13 @@ First, install dependencies:
 yarn install
 ```
 
-Then, copy the `.env.example` file to `.env`:
+Then copy the example environment file and fill in the values (RPC URLs, explorer keys, deployer keys):
 
 ```shell
 cp .env.example .env
 ```
 
-Finally, update the `.env` file with the appropriate values.
+Supported networks in `.env.example`: Ethereum, Arbitrum, Optimism, Base, and Linea.
 
 ### Build
 
@@ -298,12 +175,18 @@ yarn test
 
 ### Deploy
 
+Deploy with `forge script` against your deployment script:
+
 ```shell
 forge script --broadcast --verify --multi <path-to-script>
 ```
 
-If the deployment fails, you can resume the deployment from the last failed transaction by running the following command:
+If a deployment fails partway, resume from the last failed transaction:
 
 ```shell
 forge script --broadcast --verify --multi --resume <path-to-script>
 ```
+
+## Foundry documentation
+
+https://book.getfoundry.sh/

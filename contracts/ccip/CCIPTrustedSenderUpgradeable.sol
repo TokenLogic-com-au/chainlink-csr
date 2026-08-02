@@ -22,15 +22,24 @@ abstract contract CCIPTrustedSenderUpgradeable is
 {
     using SafeERC20 for IERC20;
 
-    /// @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender
+    /**
+     * @dev The EIP-7201 storage layout for the {CCIPTrustedSenderUpgradeable} contract.
+     * @custom:storage-location erc7201:ccip-csr.storage.CCIPTrustedSender
+     * @custom:member receivers The mapping from destination chain selector to the encoded receiver address.
+     */
     struct CCIPTrustedSenderStorage {
         mapping(uint64 destChainSelector => bytes receiver) receivers;
     }
 
+    /// @dev The EIP-7201 storage slot for the {CCIPTrustedSenderStorage} struct.
     // keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.CCIPTrustedSender")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant CCIPTrustedSenderStorageLocation =
         0x0c7e84f56285f1b5532fe17ac0ab4310ac3914a71fe91e1c6ec35a7f3d15de00;
 
+    /**
+     * @dev Returns a pointer to the {CCIPTrustedSenderStorage} struct.
+     * @return $ The storage pointer to the {CCIPTrustedSenderStorage} struct.
+     */
     function _getCCIPTrustedSenderStorage()
         private
         pure
@@ -41,29 +50,24 @@ abstract contract CCIPTrustedSenderUpgradeable is
         }
     }
 
+    /**
+     * @dev Initializes the {CCIPTrustedSenderUpgradeable} contract. Reserved for derived contracts to chain initialization.
+     */
     function __CCIPTrustedSender_init() internal onlyInitializing {}
 
+    /**
+     * @dev Unchained initializer for the {CCIPTrustedSenderUpgradeable} contract.
+     */
     function __CCIPTrustedSender_init_unchained() internal onlyInitializing {}
 
-    /**
-     * @dev Returns the receiver for the destination chain selector.
-     */
+    /// @inheritdoc ICCIPTrustedSenderUpgradeable
     function getReceiver(
         uint64 destChainSelector
     ) public view virtual override returns (bytes memory) {
         return _getCCIPTrustedSenderStorage().receivers[destChainSelector];
     }
 
-    /**
-     * @dev Sets the receiver for the destination chain selector.
-     * If the destination chain is an EVM chain, the receiver should be encoded using `abi.encode(address)`.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
-     *
-     * Emits a {ReceiverSet} event.
-     */
+    /// @inheritdoc ICCIPTrustedSenderUpgradeable
     function setReceiver(
         uint64 destChainSelector,
         bytes memory receiver
@@ -76,6 +80,9 @@ abstract contract CCIPTrustedSenderUpgradeable is
      * If the destination chain is an EVM chain, the receiver should be encoded using `abi.encode(address)`.
      *
      * Emits a {ReceiverSet} event.
+     *
+     * @param destChainSelector The CCIP selector of the destination chain.
+     * @param receiver The encoded receiver address on the destination chain.
      */
     function _setReceiver(
         uint64 destChainSelector,
@@ -102,6 +109,15 @@ abstract contract CCIPTrustedSenderUpgradeable is
      * - `maxFee` must be greater than or equal to the fee for the message.
      * - if `payInGho` is `true`, `msg.sender` must have approved the contract to transfer `maxFee` of GHO. Else,
      *   `msg.value` must be greater than or equal to the fee for the message.
+     *
+     * @param destChainSelector The CCIP selector of the destination chain.
+     * @param tokenAmounts The list of (token, amount) pairs to send with the message.
+     * @param payInGho Whether the fee is paid in GHO (`true`) or native token (`false`).
+     * @param maxFee The maximum fee allowed by the caller.
+     * @param gasLimit The gas limit for executing the message on the destination chain.
+     * @param data The arbitrary data payload to send with the message.
+     * @param extraArgs The encoded extra arguments for the message, or empty to use the default gas limit args.
+     * @return The CCIP message id of the sent message.
      */
     function _ccipSend(
         uint64 destChainSelector,

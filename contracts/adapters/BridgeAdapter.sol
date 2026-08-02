@@ -12,10 +12,12 @@ import {IBridgeAdapter} from "../interfaces/IBridgeAdapter.sol";
  * They must not use storage variables to prevent any storage collisions with the delegator contract.
  */
 abstract contract BridgeAdapter is IBridgeAdapter {
+    /// @dev The address of the delegator contract that is allowed to delegate call this adapter.
     address public immutable DELEGATOR;
 
     /**
      * @dev Modifier to check that the function is delegate called by the delegator contract.
+     * Reverts with {BridgeAdapterOnlyDelegatedByDelegator} if the current context address is not the delegator.
      */
     modifier onlyDelegatedByDelegator() {
         if (address(this) != DELEGATOR) revert BridgeAdapterOnlyDelegatedByDelegator();
@@ -32,13 +34,7 @@ abstract contract BridgeAdapter is IBridgeAdapter {
         DELEGATOR = delegator;
     }
 
-    /**
-     * @dev Sends `amount` of tokens to `recipient` with `feeData`.
-     *
-     * Requirements:
-     *
-     * - The function must be delegate called by the delegator contract.
-     */
+    /// @inheritdoc IBridgeAdapter
     function sendToken(uint64 destChainSelector, address recipient, uint256 amount, bytes calldata feeData)
         external
         override
@@ -48,7 +44,12 @@ abstract contract BridgeAdapter is IBridgeAdapter {
     }
 
     /**
-     * @dev Internal function to send `amount` of tokens to `recipient` with `feeData`.
+     * @dev Internal function implemented by each concrete adapter to send `amount` of tokens to `recipient`
+     * on the destination chain through the bridge-specific mechanism.
+     * @param destChainSelector The selector of the destination chain.
+     * @param recipient The address that will receive the tokens on the destination chain.
+     * @param amount The amount of tokens to be sent.
+     * @param feeData The encoded fee data used by the bridge.
      */
     function _sendToken(uint64 destChainSelector, address recipient, uint256 amount, bytes calldata feeData)
         internal

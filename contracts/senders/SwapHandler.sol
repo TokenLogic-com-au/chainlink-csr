@@ -8,53 +8,70 @@ import {CCIPSenderUpgradeable, CCIPBaseUpgradeable} from "../ccip/CCIPSenderUpgr
 import {TokenHelper} from "../libraries/TokenHelper.sol";
 import {FeeCodec} from "../libraries/FeeCodec.sol";
 import {IOraclePool} from "../interfaces/IOraclePool.sol";
-import {ICustomSender} from "../interfaces/ICustomSender.sol";
+import {ISwapHandler} from "../interfaces/ISwapHandler.sol";
 
 /**
- * @title CustomSender Contract
+ * @title SwapHandler Contract
  * @dev A contract that allows users to swap GHO for sGHO (and vice versa) on deployed chain using a local oracle pool.
  * Users call `deposit` to swap GHO for sGHO, or `redeem` to swap sGHO for GHO, with the rate provided by an oracle.
  * An operator with the `SYNC_ROLE` can call `sync` to send tokens from the oracle pool to the mainnet vault via CCIP,
  * rebalancing the pool so it can continue to honor swaps.
  * This contract can be deployed directly or used as an implementation for a proxy contract (upgradable or not).
  *
- * The contract uses the EIP-7201 to prevent storage collisions.
+ * The contract uses EIP-7201 to prevent storage collisions.
  */
-contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
+contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     using SafeERC20 for IERC20;
 
+    /// @inheritdoc ISwapHandler
     bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
 
-    // https://docs.chain.link/ccip/directory/mainnet/chain/mainnet
+    /// @dev The CCIP chain selector of the Ethereum mainnet destination chain.
+    /// https://docs.chain.link/ccip/directory/mainnet/chain/mainnet
     uint64 constant ETHEREUM_CHAIN_SELECTOR = 5009297550715157269;
 
+    /// @inheritdoc ISwapHandler
     address public immutable GHO;
+
+    /// @inheritdoc ISwapHandler
     address public immutable SGHO;
 
-    /// @custom:storage-location erc7201:ccip-csr.storage.CustomSender
-    struct CustomSenderStorage {
+    /// @dev The storage layout for the {SwapHandler} contract.
+    /// @custom:storage-location erc7201:ccip-csr.storage.SwapHandler
+    /// @param oraclePool The address of the oracle pool used to swap `GHO` and `SGHO`.
+    /// @param vault The address of the mainnet vault that receives synced tokens.
+    struct SwapHandlerStorage {
         address oraclePool;
         address vault;
         address localRefundAddress;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.CustomSender")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant CustomSenderStorageLocation =
-        0x8d7d6771bb1753c5a4765d77340d4f09d4dc8da64869871a1bdb7f28bcfa7400;
+    /// @dev The ERC-7201 storage location for the {SwapHandlerStorage} struct.
+    /// keccak256(abi.encode(uint256(keccak256("ccip-csr.storage.SwapHandler")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant SwapHandlerStorageLocation =
+        0x3c32139014b4e851cb2e6374c79ea0bb757c673e965891f100349a1f9bf7d500;
 
-    function _getCustomSenderStorage()
+    /// @dev Returns a storage pointer to the {SwapHandlerStorage} struct.
+    /// @return $ The storage pointer to the {SwapHandlerStorage} struct.
+    function _getSwapHandlerStorage()
         private
         pure
-        returns (CustomSenderStorage storage $)
+        returns (SwapHandlerStorage storage $)
     {
         assembly {
-            $.slot := CustomSenderStorageLocation
+            $.slot := SwapHandlerStorageLocation
         }
     }
 
     /**
-     * @dev Sets the immutable values for {SGHO_TOKEN}, {GHO_TOKEN}, and {CCIP_ROUTER} and the initial values for
-     * the oracle pool and the admin role.
+     * @dev Sets the immutable values for {SGHO}, {GHO}, and the CCIP router and the initial values for
+     * the oracle pool, the mainnet vault and the admin role.
+     * @param sghoToken The address of the `SGHO` token on the deployed network.
+     * @param ghoToken The address of the `GHO` token on the deployed network.
+     * @param ccipRouter The address of the CCIP router.
+     * @param oraclePool The address of the oracle pool.
+     * @param vault The address of the mainnet vault.
+     * @param initialAdmin The address granted the `DEFAULT_ADMIN_ROLE`.
      */
     constructor(
         address sghoToken,
@@ -68,7 +85,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             sghoToken != address(0) &&
                 ghoToken != address(0) &&
                 sghoToken != ghoToken,
-            CustomSenderInvalidParameters()
+            SwapHandlerInvalidParameters()
         );
 
         GHO = ghoToken;
@@ -78,41 +95,33 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
     }
 
     /**
-     * @dev Initializes the values for the oracle pool and the admin role.
+     * @dev Initializes the values for the oracle pool, the mainnet vault and the admin role.
      * If this contract isn't used as the implementation for a proxy contract, this function will be called by the constructor.
+     * @param oraclePool The address of the oracle pool.
+     * @param vault The address of the mainnet vault.
+     * @param initialAdmin The address granted the `DEFAULT_ADMIN_ROLE`.
      */
     function initialize(
         address oraclePool,
         address vault,
         address initialAdmin
     ) public initializer {
-        require(initialAdmin != address(0), CustomSenderInvalidParameters());
+        require(initialAdmin != address(0), SwapHandlerInvalidParameters());
 
         _grantRole(DEFAULT_ADMIN_ROLE, initialAdmin);
         _setOraclePool(oraclePool);
         _setVault(vault);
     }
 
-    /**
-     * @dev Allows users to swap GHO for sGHO using an oracle pool.
-     * The user sends GHO to this contract, the oracle pool swaps the GHO for sGHO,
-     * and sends the sGHO back to the user.
-     *
-     * Requirements:
-     *
-     * - The amount sent must be greater than 0.
-     * - The token sent must be GHO.
-     *
-     * Emits a {Deposit} event.
-     */
+    /// @inheritdoc ISwapHandler
     function deposit(
         uint256 exactAmountIn,
         uint256 minAmountOut
-    ) public virtual returns (uint256) {
-        require(exactAmountIn > 0, CustomSenderZeroAmount());
+    ) public returns (uint256) {
+        require(exactAmountIn > 0, SwapHandlerZeroAmount());
 
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+        address oraclePool = _getSwapHandlerStorage().oraclePool;
+        require(oraclePool != address(0), SwapHandlerOraclePoolNotSet());
 
         IERC20(GHO).safeTransferFrom(msg.sender, address(this), exactAmountIn);
         IERC20(GHO).forceApprove(oraclePool, exactAmountIn);
@@ -128,26 +137,15 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return amountOut;
     }
 
-    /**
-     * @dev Allows users to swap sGHO for GHO using an oracle pool.
-     * The user sends sGHO to this contract, the oracle pool swaps the sGHO for GHO,
-     * and sends the GHO back to the user.
-     *
-     * Requirements:
-     *
-     * - The amount sent must be greater than 0.
-     * - The token sent must be sGHO.
-     *
-     * Emits a {Redeem} event.
-     */
+    /// @inheritdoc ISwapHandler
     function redeem(
         uint256 amount,
         uint256 minAmountOut
-    ) public virtual returns (uint256) {
-        require(amount > 0, CustomSenderZeroAmount());
+    ) public returns (uint256) {
+        require(amount > 0, SwapHandlerZeroAmount());
 
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+        address oraclePool = _getSwapHandlerStorage().oraclePool;
+        require(oraclePool != address(0), SwapHandlerOraclePoolNotSet());
 
         IERC20(SGHO).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(SGHO).forceApprove(oraclePool, amount);
@@ -163,35 +161,20 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return amountOut;
     }
 
-    /**
-     * @dev Allows an operator to rebalance the oracle pool by sending the pulled tokens to the mainnet vault via CCIP.
-     * The CCIP fee is paid by `msg.sender` and can be paid in GHO or in native token, as encoded in `feeData`.
-     * Excess native value sent with the call is refunded to `msg.sender`.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `SYNC_ROLE`.
-     * - `amount` must be greater than 0.
-     * - `token` must be either `GHO` or `SGHO`.
-     * - The oracle pool must be set.
-     * - The gas limit encoded in `feeData` must be at least `minProcessMessageGas`.
-     * - If `extraArgs` is non-empty, the `gasLimit` it encodes (as `GenericExtraArgsV3`) must also be at least `minProcessMessageGas`.
-     *
-     * Emits a {Sync} event.
-     */
+    /// @inheritdoc ISwapHandler
     function sync(
         address token,
         uint256 amount,
         uint256 minAmountOut,
         bytes calldata feeData,
         bytes calldata extraArgs
-    ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
-        require(amount > 0, CustomSenderZeroAmount());
-        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
+    ) external payable onlyRole(SYNC_ROLE) returns (bytes32) {
+        require(amount > 0, SwapHandlerZeroAmount());
+        require(token == GHO || token == SGHO, SwapHandlerInvalidToken());
 
-        address oraclePool = _getCustomSenderStorage().oraclePool;
+        address oraclePool = _getSwapHandlerStorage().oraclePool;
 
-        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+        require(oraclePool != address(0), SwapHandlerOraclePoolNotSet());
 
         IOraclePool(oraclePool).pull(token, amount);
 
@@ -217,81 +200,64 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         return messageId;
     }
 
-    /// @inheritdoc ICustomSender
+    /// @inheritdoc ISwapHandler
     function refundOraclePool(
         address token,
         uint256 amount
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(amount > 0, CustomSenderZeroAmount());
-        require(token == GHO || token == SGHO, CustomSenderInvalidToken());
+        require(amount > 0, SwapHandlerZeroAmount());
+        require(token == GHO || token == SGHO, SwapHandlerInvalidToken());
 
-        address oraclePool = _getCustomSenderStorage().oraclePool;
-        require(oraclePool != address(0), CustomSenderOraclePoolNotSet());
+        address oraclePool = _getSwapHandlerStorage().oraclePool;
+        require(oraclePool != address(0), SwapHandlerOraclePoolNotSet());
 
         IERC20(token).safeTransfer(oraclePool, amount);
 
         emit OraclePoolRefunded(oraclePool, token, amount);
     }
 
-    /**
-     * @dev Sets the address of the oracle pool.
-     * It also approves the maximum amount of `GHO` to the oracle pool and revokes the approval from the previous oracle pool.
-     * It also approves the maximum amount of `SGHO` to the oracle pool and revokes the approval from the previous oracle pool.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
-     *
-     * Emits a {OraclePoolSet} event.
-     */
+    /// @inheritdoc ISwapHandler
     function setOraclePool(
         address oraclePool
-    ) public override onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOraclePool(oraclePool);
     }
 
-    /**
-     * @dev Sets the address of the mainnet vault.
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
-     *
-     * Emits a {VaultSet} event.
-     */
+    /// @inheritdoc ISwapHandler
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setVault(vault);
     }
 
-    /**
-     * @dev Sets the local refund address for mainnet (if applicable).
-     *
-     * Requirements:
-     *
-     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
-     *
-     * Emits a {LocalRefundAddressSet} event.
-     */
+    /// @inheritdoc ISwapHandler
     function setLocalRefundAddress(
         address refundAddress
     ) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setLocalRefundAddress(refundAddress);
     }
 
-    /**
-     * @dev Returns the address of the oracle pool.
-     */
+    /// @inheritdoc ISwapHandler
     function getOraclePool() public view returns (address) {
-        return _getCustomSenderStorage().oraclePool;
+        return _getSwapHandlerStorage().oraclePool;
+    }
+
+    /// @inheritdoc ISwapHandler
+    function getVault() public view returns (address) {
+        return _getSwapHandlerStorage().vault;
     }
 
     /**
-     * @dev Returns the address of the mainnet vault.
+     * @dev Builds the CCIP message for a sync and sends it to the destination chain via the CCIP router.
+     * The gas limit encoded in `feeData` must be at least {minProcessMessageGas}, otherwise the call reverts
+     * with `SwapHandlerInsufficientGas`. The gas limit embedded in `extraArgs`, when one is supplied, is
+     * checked separately by `CCIPSenderUpgradeable` against the same floor.
+     * @param destChainSelector The CCIP selector of the destination chain.
+     * @param token The address of the token to be sent (`GHO` or `SGHO`).
+     * @param amount The amount of `token` to be sent.
+     * @param minimumAmountOut The minimum amount expected on the destination chain.
+     * @param feeData The encoded CCIP fee data (max fee, fee payment token, and gas limit).
+     * @param extraArgs The extra arguments forwarded to the CCIP router.
+     * @return The identifier of the CCIP message sent.
      */
-    function getVault() public view returns (address) {
-        return _getCustomSenderStorage().vault;
-    }
-
     function _buildAndSendSync(
         uint64 destChainSelector,
         address token,
@@ -299,8 +265,8 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         uint256 minimumAmountOut,
         bytes calldata feeData,
         bytes calldata extraArgs
-    ) internal returns (bytes32) {
-        CustomSenderStorage storage $ = _getCustomSenderStorage();
+    ) internal virtual returns (bytes32) {
+        SwapHandlerStorage storage $ = _getSwapHandlerStorage();
 
         Client.EVMTokenAmount[]
             memory tokenAmounts = new Client.EVMTokenAmount[](1);
@@ -317,7 +283,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
             feeData
         );
 
-        require(gasLimit >= minProcessMessageGas, CCIPSenderInsufficientGas());
+        require(gasLimit >= minProcessMessageGas, SwapHandlerInsufficientGas());
 
         return
             _ccipSend(
@@ -341,17 +307,21 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
         bool returnToSourceChain
     ) internal view returns (uint256) {
         return
-            (uint256(uint160(_getCustomSenderStorage().localRefundAddress)) <<
+            (uint256(uint160(_getSwapHandlerStorage().localRefundAddress)) <<
                 1) | (returnToSourceChain ? 1 : 0);
     }
 
     /**
      * @dev Sets the address of the oracle pool.
+     * It approves the maximum amount of `GHO` and `SGHO` to the new oracle pool and revokes the
+     * approvals from the previous oracle pool.
      *
-     * Emits a {OraclePoolSet} event.
+     * Emits an {OraclePoolSet} event.
+     *
+     * @param oraclePool The address of the new oracle pool.
      */
-    function _setOraclePool(address oraclePool) internal {
-        CustomSenderStorage storage $ = _getCustomSenderStorage();
+    function _setOraclePool(address oraclePool) internal virtual {
+        SwapHandlerStorage storage $ = _getSwapHandlerStorage();
         address oldOracle = $.oraclePool;
 
         $.oraclePool = oraclePool;
@@ -373,11 +343,13 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * @dev Sets the address of the mainnet vault.
      *
      * Emits a {VaultSet} event.
+     *
+     * @param vault The address of the new mainnet vault.
      */
     function _setVault(address vault) internal {
-        require(vault != address(0), CustomSenderZeroAddress());
+        require(vault != address(0), SwapHandlerZeroAddress());
 
-        CustomSenderStorage storage $ = _getCustomSenderStorage();
+        SwapHandlerStorage storage $ = _getSwapHandlerStorage();
         $.vault = vault;
         emit VaultSet(vault);
     }
@@ -388,7 +360,7 @@ contract CustomSender is CCIPTrustedSenderUpgradeable, ICustomSender {
      * Emits a {LocalRefundAddressSet} event.
      */
     function _setLocalRefundAddress(address refundAddress) internal {
-        CustomSenderStorage storage $ = _getCustomSenderStorage();
+        SwapHandlerStorage storage $ = _getSwapHandlerStorage();
         address oldRefundAddress = $.localRefundAddress;
 
         $.localRefundAddress = refundAddress;

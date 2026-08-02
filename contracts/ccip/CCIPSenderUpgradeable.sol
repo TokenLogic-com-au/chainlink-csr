@@ -21,6 +21,7 @@ abstract contract CCIPSenderUpgradeable is
 {
     using SafeERC20 for IERC20;
 
+    /// @inheritdoc ICCIPSenderUpgradeable
     address public immutable override GHO_TOKEN;
 
     /// @dev The minimum gas that must be encoded in `extraArgs` (or in the fallback `gasLimit`
@@ -29,7 +30,8 @@ abstract contract CCIPSenderUpgradeable is
     uint32 public minProcessMessageGas = 400_000;
 
     /**
-     * @dev Sets the immutable value for {GHO_TOKEN}.
+     * @dev Sets the immutable value for the {GHO_TOKEN} address.
+     * @param ghoToken The address of the GHO token used to pay CCIP fees.
      */
     constructor(address ghoToken) {
         require(ghoToken != address(0), CCIPSenderInvalidParameters());
@@ -37,8 +39,14 @@ abstract contract CCIPSenderUpgradeable is
         GHO_TOKEN = ghoToken;
     }
 
+    /**
+     * @dev Initializes the {CCIPSenderUpgradeable} contract. Reserved for derived contracts to chain initialization.
+     */
     function __CCIPSender_init() internal onlyInitializing {}
 
+    /**
+     * @dev Unchained initializer for the {CCIPSenderUpgradeable} contract.
+     */
     function __CCIPSender_init_unchained() internal onlyInitializing {}
 
     /**
@@ -77,6 +85,17 @@ abstract contract CCIPSenderUpgradeable is
      * - if `payInGho` is `true`: `payer` must have approved this contract to transfer the fee in GHO, unless
      *   `payer` is the contract itself, in which case the contract must hold at least the fee in GHO.
      * - if `payInGho` is `false`: `msg.value` must be greater than or equal to the fee.
+     *
+     * @param destChainSelector The CCIP selector of the destination chain.
+     * @param payer The account paying the CCIP fee.
+     * @param receiver The encoded receiver address on the destination chain.
+     * @param tokenAmounts The list of (token, amount) pairs to send with the message.
+     * @param payInGho Whether the fee is paid in GHO (`true`) or native token (`false`).
+     * @param maxFee The maximum fee allowed by the caller.
+     * @param gasLimit The gas limit for executing the message on the destination chain.
+     * @param data The arbitrary data payload to send with the message.
+     * @param extraArgs The encoded extra arguments for the message, or empty to use the default gas limit args.
+     * @return The CCIP message id of the sent message.
      */
     function _ccipSendTo(
         uint64 destChainSelector,
