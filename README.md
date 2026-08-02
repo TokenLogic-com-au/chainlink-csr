@@ -29,7 +29,7 @@ The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by t
 
 [`contracts/utils/OraclePool.sol`](contracts/utils/OraclePool.sol): Swaps `GHO` for `sGHO` (and vice versa) using an exchange-rate oracle, with an optional swap fee. Only the configured `SENDER` (the `SwapHandler`) may call the swap and `pull` functions; the owner may `sweep` tokens and update the oracle/fee. Not compatible with fee-on-transfer tokens.
 
-[`contracts/utils/PausableImmutableOraclePool.sol`](contracts/utils/PausableImmutableOraclePool.sol): An `OraclePool` variant whose oracle and fee are immutable after deployment, and whose `deposit`, `redeem`, and `pull` can be paused/unpaused by the owner.
+[`contracts/utils/PausableOraclePool.sol`](contracts/utils/PausableOraclePool.sol): An `OraclePool` variant whose `deposit`, `redeem`, and `pull` can be paused/unpaused by the owner.
 
 [`contracts/utils/PriceOracle.sol`](contracts/utils/PriceOracle.sol): Wraps a Chainlink aggregator and returns the price scaled to 1e18, with optional inversion and a heartbeat-based staleness check.
 
@@ -61,11 +61,11 @@ The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by t
 - `vault`: The mainnet receiver (Chainlink Cross-Chain Vault) that `sync` bridges to. Must be non-zero.
 - `initialAdmin`: The address granted the `DEFAULT_ADMIN_ROLE`.
 
-### `OraclePool` / `PausableImmutableOraclePool`
+### `OraclePool` / `PausableOraclePool`
 
 - `sender`: The `SwapHandler` allowed to drive swaps and pulls.
 - `gho` / `sgho`: The `GHO` and `sGHO` token addresses.
-- `oracle`: The exchange-rate oracle (a `PriceOracle`/`PriceConverterOracle`). For `PausableImmutableOraclePool` this must be non-zero.
+- `oracle`: The exchange-rate oracle (a `PriceOracle`/`PriceConverterOracle`). For `PausableOraclePool` this must be non-zero.
 - `fee`: The swap fee applied to each swap, in 1e18 scale (e.g. `1e16` = 1%). Must be `<= 1e18`.
 - `initialOwner`: The pool owner.
 - `maxYearlyGrowthBps`: The maximum yearly growth allowed for the pool's price cap, in basis points (e.g. `500` = 5% / yr). The cap is an upper bound on the oracle reading used for swaps — `cap = snapshot + perSecondGrowth * elapsed` — and protects against a glitched or manipulated oracle spike. Set it with some headroom above `sGHO`'s expected accrual rate. The initial snapshot is auto-seeded from the oracle reading at deploy.
