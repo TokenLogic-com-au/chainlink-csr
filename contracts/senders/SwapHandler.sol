@@ -111,6 +111,7 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
         _grantRole(DEFAULT_ADMIN_ROLE, initialAdmin);
         _setOraclePool(oraclePool);
         _setVault(vault);
+        minProcessMessageGas = 400_000;
     }
 
     /// @inheritdoc ISwapHandler

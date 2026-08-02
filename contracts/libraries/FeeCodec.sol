@@ -21,11 +21,11 @@ library FeeCodec {
      * @param feeData The encoded fee data used by the bridge.
      * @return The packed bytes array.
      */
-    function encodePackedData(address recipient, uint256 amount, bytes calldata feeData)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function encodePackedData(
+        address recipient,
+        uint256 amount,
+        bytes calldata feeData
+    ) internal pure returns (bytes memory) {
         return abi.encodePacked(recipient, amount, feeData);
     }
 
@@ -37,11 +37,11 @@ library FeeCodec {
      * @param feeData The encoded fee data used by the bridge.
      * @return The packed bytes array.
      */
-    function encodePackedDataMemory(address recipient, uint256 amount, bytes memory feeData)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function encodePackedDataMemory(
+        address recipient,
+        uint256 amount,
+        bytes memory feeData
+    ) internal pure returns (bytes memory) {
         return abi.encodePacked(recipient, amount, feeData);
     }
 
@@ -58,12 +58,15 @@ library FeeCodec {
      * @return amount The amount of tokens to be sent.
      * @return feeData The encoded fee data used by the bridge.
      */
-    function decodePackedData(bytes calldata packedData)
+    function decodePackedData(
+        bytes calldata packedData
+    )
         internal
         pure
         returns (address recipient, uint256 amount, bytes calldata feeData)
     {
-        if (packedData.length < 52) revert FeeCodecInvalidDataLength(packedData.length, 52);
+        if (packedData.length < 52)
+            revert FeeCodecInvalidDataLength(packedData.length, 52);
 
         recipient = address(uint160(bytes20(packedData[0:20])));
         amount = uint256(bytes32(packedData[20:52]));
@@ -83,14 +86,17 @@ library FeeCodec {
      * @return amount The amount of tokens to be sent.
      * @return feeData The encoded fee data used by the bridge.
      */
-    function decodePackedDataMemory(bytes memory packedData)
+    function decodePackedDataMemory(
+        bytes memory packedData
+    )
         internal
         pure
         returns (address recipient, uint256 amount, bytes memory feeData)
     {
         uint256 length = packedData.length;
 
-        if (length < 52) revert FeeCodecInvalidDataLength(packedData.length, 52);
+        if (length < 52)
+            revert FeeCodecInvalidDataLength(packedData.length, 52);
 
         feeData = abi.encodePacked(packedData); // Force solidity to copy the data
 
@@ -115,8 +121,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer.
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeFee(bytes calldata feeData) internal pure returns (uint128 feeAmount, bool payInLink) {
-        if (feeData.length < 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeFee(
+        bytes calldata feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length < 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         return (uint128(bytes16(feeData[0:16])), feeData[16] != 0);
     }
 
@@ -132,8 +141,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer.
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeFeeMemory(bytes memory feeData) internal pure returns (uint128 feeAmount, bool payInLink) {
-        if (feeData.length < 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeFeeMemory(
+        bytes memory feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length < 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
@@ -148,7 +160,11 @@ library FeeCodec {
      * @param gasLimit The minimum amount of gas that should be used to execute the transaction on the destination chain.
      * @return The encoded CCIP fee data.
      */
-    function encodeCCIP(uint128 maxFee, bool payInLink, uint32 gasLimit) internal pure returns (bytes memory) {
+    function encodeCCIP(
+        uint128 maxFee,
+        bool payInLink,
+        uint32 gasLimit
+    ) internal pure returns (bytes memory) {
         return abi.encodePacked(maxFee, payInLink, gasLimit);
     }
 
@@ -165,12 +181,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token of the source chain (false).
      * @return gasLimit The minimum amount of gas that should be used to execute the transaction on the destination chain.
      */
-    function decodeCCIP(bytes calldata feeData)
-        internal
-        pure
-        returns (uint128 maxFee, bool payInLink, uint32 gasLimit)
-    {
-        if (feeData.length != 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeCCIP(
+        bytes calldata feeData
+    ) internal pure returns (uint128 maxFee, bool payInLink, uint32 gasLimit) {
+        if (feeData.length != 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         maxFee = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
         gasLimit = uint32(bytes4(feeData[17:21]));
@@ -189,12 +204,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token of the source chain (false).
      * @return gasLimit The minimum amount of gas that should be used to execute the transaction on the destination chain.
      */
-    function decodeCCIPMemory(bytes memory feeData)
-        internal
-        pure
-        returns (uint128 maxFee, bool payInLink, uint32 gasLimit)
-    {
-        if (feeData.length < 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeCCIPMemory(
+        bytes memory feeData
+    ) internal pure returns (uint128 maxFee, bool payInLink, uint32 gasLimit) {
+        if (feeData.length < 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         bytes32 value = bytes32(feeData);
 
         maxFee = uint128(bytes16(value));
@@ -211,11 +225,11 @@ library FeeCodec {
      * @param gasPriceBid The gas price bid for the L2 retryable ticket.
      * @return The encoded Arbitrum L1-to-L2 fee data.
      */
-    function encodeArbitrumL1toL2(uint128 maxSubmissionCost, uint32 maxGas, uint64 gasPriceBid)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function encodeArbitrumL1toL2(
+        uint128 maxSubmissionCost,
+        uint32 maxGas,
+        uint64 gasPriceBid
+    ) internal pure returns (bytes memory) {
         uint128 feeAmount = maxSubmissionCost + uint128(gasPriceBid) * maxGas;
         return abi.encodePacked(feeAmount, uint8(0), maxGas, gasPriceBid);
     }
@@ -236,12 +250,21 @@ library FeeCodec {
      * @return maxGas The maximum amount of gas for the L2 retryable ticket.
      * @return gasPriceBid The gas price bid for the L2 retryable ticket.
      */
-    function decodeArbitrumL1toL2(bytes calldata feeData)
+    function decodeArbitrumL1toL2(
+        bytes calldata feeData
+    )
         internal
         pure
-        returns (uint128 feeAmount, bool payInLink, uint128 maxSubmissionCost, uint32 maxGas, uint64 gasPriceBid)
+        returns (
+            uint128 feeAmount,
+            bool payInLink,
+            uint128 maxSubmissionCost,
+            uint32 maxGas,
+            uint64 gasPriceBid
+        )
     {
-        if (feeData.length != 29) revert FeeCodecInvalidDataLength(feeData.length, 29);
+        if (feeData.length != 29)
+            revert FeeCodecInvalidDataLength(feeData.length, 29);
         feeAmount = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
         maxGas = uint32(bytes4(feeData[17:21]));
@@ -266,12 +289,21 @@ library FeeCodec {
      * @return maxGas The maximum amount of gas for the L2 retryable ticket.
      * @return gasPriceBid The gas price bid for the L2 retryable ticket.
      */
-    function decodeArbitrumL1toL2Memory(bytes memory feeData)
+    function decodeArbitrumL1toL2Memory(
+        bytes memory feeData
+    )
         internal
         pure
-        returns (uint128 feeAmount, bool payInLink, uint128 maxSubmissionCost, uint32 maxGas, uint64 gasPriceBid)
+        returns (
+            uint128 feeAmount,
+            bool payInLink,
+            uint128 maxSubmissionCost,
+            uint32 maxGas,
+            uint64 gasPriceBid
+        )
     {
-        if (feeData.length != 29) revert FeeCodecInvalidDataLength(feeData.length, 29);
+        if (feeData.length != 29)
+            revert FeeCodecInvalidDataLength(feeData.length, 29);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
@@ -289,7 +321,9 @@ library FeeCodec {
      * @param l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      * @return The encoded Optimism L1-to-L2 fee data.
      */
-    function encodeOptimismL1toL2(uint32 l2Gas) internal pure returns (bytes memory) {
+    function encodeOptimismL1toL2(
+        uint32 l2Gas
+    ) internal pure returns (bytes memory) {
         return abi.encodePacked(uint136(0), l2Gas);
     }
 
@@ -306,12 +340,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      * @return l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      */
-    function decodeOptimismL1toL2(bytes calldata feeData)
-        internal
-        pure
-        returns (uint128 feeAmount, bool payInLink, uint32 l2Gas)
-    {
-        if (feeData.length != 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeOptimismL1toL2(
+        bytes calldata feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink, uint32 l2Gas) {
+        if (feeData.length != 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         feeAmount = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
         l2Gas = uint32(bytes4(feeData[17:21]));
@@ -330,12 +363,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      * @return l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      */
-    function decodeOptimismL1toL2Memory(bytes memory feeData)
-        internal
-        pure
-        returns (uint128 feeAmount, bool payInLink, uint32 l2Gas)
-    {
-        if (feeData.length != 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeOptimismL1toL2Memory(
+        bytes memory feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink, uint32 l2Gas) {
+        if (feeData.length != 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
@@ -350,7 +382,9 @@ library FeeCodec {
      * @param l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      * @return The encoded Base L1-to-L2 fee data.
      */
-    function encodeBaseL1toL2(uint32 l2Gas) internal pure returns (bytes memory) {
+    function encodeBaseL1toL2(
+        uint32 l2Gas
+    ) internal pure returns (bytes memory) {
         return abi.encodePacked(uint136(0), l2Gas);
     }
 
@@ -367,12 +401,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      * @return l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      */
-    function decodeBaseL1toL2(bytes calldata feeData)
-        internal
-        pure
-        returns (uint128 feeAmount, bool payInLink, uint32 l2Gas)
-    {
-        if (feeData.length != 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeBaseL1toL2(
+        bytes calldata feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink, uint32 l2Gas) {
+        if (feeData.length != 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         feeAmount = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
         l2Gas = uint32(bytes4(feeData[17:21]));
@@ -391,12 +424,11 @@ library FeeCodec {
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      * @return l2Gas The minimum amount of gas that should be used for the deposit message on L2.
      */
-    function decodeBaseL1toL2Memory(bytes memory feeData)
-        internal
-        pure
-        returns (uint128 feeAmount, bool payInLink, uint32 l2Gas)
-    {
-        if (feeData.length != 21) revert FeeCodecInvalidDataLength(feeData.length, 21);
+    function decodeBaseL1toL2Memory(
+        bytes memory feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink, uint32 l2Gas) {
+        if (feeData.length != 21)
+            revert FeeCodecInvalidDataLength(feeData.length, 21);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
@@ -425,8 +457,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer (always zero for a Frax Ferry L1-to-L2 transfer).
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeFraxFerryL1toL2(bytes calldata feeData) internal pure returns (uint128 feeAmount, bool payInLink) {
-        if (feeData.length != 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeFraxFerryL1toL2(
+        bytes calldata feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length != 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         feeAmount = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
     }
@@ -443,12 +478,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer (always zero for a Frax Ferry L1-to-L2 transfer).
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeFraxFerryL1toL2Memory(bytes memory feeData)
-        internal
-        pure
-        returns (uint128 feeAmount, bool payInLink)
-    {
-        if (feeData.length != 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeFraxFerryL1toL2Memory(
+        bytes memory feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length != 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
@@ -476,8 +510,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer.
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeLineaL1toL2(bytes calldata feeData) internal pure returns (uint128 feeAmount, bool payInLink) {
-        if (feeData.length != 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeLineaL1toL2(
+        bytes calldata feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length != 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         feeAmount = uint128(bytes16(feeData[0:16]));
         payInLink = feeData[16] != 0;
     }
@@ -494,8 +531,11 @@ library FeeCodec {
      * @return feeAmount The fee amount for the transfer.
      * @return payInLink Whether the fee should be paid in LINK tokens (true) or in the native token (false).
      */
-    function decodeLineaL1toL2Memory(bytes memory feeData) internal pure returns (uint128 feeAmount, bool payInLink) {
-        if (feeData.length != 17) revert FeeCodecInvalidDataLength(feeData.length, 17);
+    function decodeLineaL1toL2Memory(
+        bytes memory feeData
+    ) internal pure returns (uint128 feeAmount, bool payInLink) {
+        if (feeData.length != 17)
+            revert FeeCodecInvalidDataLength(feeData.length, 17);
         bytes32 value = bytes32(feeData);
 
         feeAmount = uint128(bytes16(value));
