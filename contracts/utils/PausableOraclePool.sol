@@ -7,18 +7,14 @@ import {IOraclePool} from "../interfaces/IOraclePool.sol";
 import {OraclePool} from "./OraclePool.sol";
 
 /**
- * @title PausableImmutableOraclePool Contract
- * @dev An OraclePool contract that is pausable and immutable.
- * The oracle and the fee cannot be changed after deployment.
+ * @title PausableOraclePool Contract
+ * @dev An OraclePool contract that is pausable.
  * The owner can pause and unpause the contract, which will prevent the `deposit`,
  * `redeem`, and `pull` functions from being called.
  */
-contract PausableImmutableOraclePool is OraclePool, Pausable {
-    /// @dev The oracle or fee cannot be changed because they are immutable in this contract.
-    error PausableImmutableOraclePoolImmutable();
-
+contract PausableOraclePool is OraclePool, Pausable {
     /// @dev One or more of the constructor parameters is invalid (e.g. the oracle is the zero address).
-    error PausableImmutableOraclePoolInvalidParameters();
+    error PausableOraclePoolInvalidParameters();
 
     /**
      * @dev Sets the immutable values for {SENDER}, {GHO}, {SGHO} and the initial values for the oracle, the swap fee,
@@ -50,10 +46,7 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
             maxYearlyGrowthBps
         )
     {
-        require(
-            oracle != address(0),
-            PausableImmutableOraclePoolInvalidParameters()
-        );
+        require(oracle != address(0), PausableOraclePoolInvalidParameters());
     }
 
     /// @inheritdoc IOraclePool
@@ -100,31 +93,5 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
      */
     function unpause() public onlyOwner whenPaused {
         _unpause();
-    }
-
-    /// @inheritdoc IOraclePool
-    /// @dev Always reverts: the oracle is immutable in this contract.
-    function setOracle(address) public pure override {
-        revert PausableImmutableOraclePoolImmutable();
-    }
-
-    /// @inheritdoc IOraclePool
-    /// @dev Always reverts: the fee is immutable in this contract.
-    function setFee(uint96) public pure override {
-        revert PausableImmutableOraclePoolImmutable();
-    }
-
-    /**
-     * @dev Prevents the price-cap parameters from being changed.
-     */
-    function setCapParameters(uint256, uint48, uint16) public pure override {
-        revert PausableImmutableOraclePoolImmutable();
-    }
-
-    /**
-     * @dev Prevents the maximum yearly growth bps from being changed.
-     */
-    function setMaxYearlyGrowthBps(uint16) public pure override {
-        revert PausableImmutableOraclePoolImmutable();
     }
 }

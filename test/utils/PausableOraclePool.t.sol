@@ -3,14 +3,14 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 
-import "../../contracts/utils/PausableImmutableOraclePool.sol";
+import "../../contracts/utils/PausableOraclePool.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/utils/PriceOracle.sol";
 import "../mocks/MockDataFeed.sol";
 import "../mocks/MockERC20.sol";
 
-contract PausableImmutableoraclePoolTest is Test {
-    PausableImmutableOraclePool public oraclePool;
+contract PausableOraclePoolTest is Test {
+    PausableOraclePool public oraclePool;
     PriceOracle public priceOracle;
     MockDataFeed public dataFeed;
     MockERC20 public tokenOut;
@@ -33,7 +33,7 @@ contract PausableImmutableoraclePoolTest is Test {
         tokenOut = new MockERC20("TokenOut", "TO", 18);
         // Cap parameters: 20% / yr (realistic DeFi peak rate), so after 6 years the linear cap
         // accumulates to ~2.2e18 — just above the fuzz price ceiling of 2e18 below.
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
@@ -54,7 +54,7 @@ contract PausableImmutableoraclePoolTest is Test {
     }
 
     function test_Constructor() public {
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
@@ -77,7 +77,7 @@ contract PausableImmutableoraclePoolTest is Test {
 
     function test_Revert_Constructor() public {
         vm.expectRevert(IOraclePool.OraclePoolInvalidParameters.selector);
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             address(0),
             address(tokenIn),
             address(tokenOut),
@@ -88,7 +88,7 @@ contract PausableImmutableoraclePoolTest is Test {
         );
 
         vm.expectRevert(IOraclePool.OraclePoolInvalidParameters.selector);
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(0),
             address(tokenOut),
@@ -99,7 +99,7 @@ contract PausableImmutableoraclePoolTest is Test {
         );
 
         vm.expectRevert(IOraclePool.OraclePoolInvalidParameters.selector);
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(0),
@@ -115,7 +115,7 @@ contract PausableImmutableoraclePoolTest is Test {
                 address(0)
             )
         );
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
@@ -126,11 +126,11 @@ contract PausableImmutableoraclePoolTest is Test {
         );
 
         vm.expectRevert(
-            PausableImmutableOraclePool
-                .PausableImmutableOraclePoolInvalidParameters
+            PausableOraclePool
+                .PausableOraclePoolInvalidParameters
                 .selector
         );
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
@@ -141,39 +141,7 @@ contract PausableImmutableoraclePoolTest is Test {
         );
     }
 
-    function test_Fuzz_Revert_SetOracle(address oracleB) public {
-        assertEq(
-            oraclePool.getOracle(),
-            address(priceOracle),
-            "test_Fuzz_Revert_SetOracle::1"
-        );
 
-        vm.expectRevert(
-            PausableImmutableOraclePool
-                .PausableImmutableOraclePoolImmutable
-                .selector
-        );
-        oraclePool.setOracle(oracleB);
-
-        assertEq(
-            oraclePool.getOracle(),
-            address(priceOracle),
-            "test_Fuzz_Revert_SetOracle::2"
-        );
-    }
-
-    function test_Fuzz_Revert_SetFee(uint96 newFee) public {
-        assertEq(oraclePool.getFee(), fee, "test_Fuzz_Revert_SetFee::1");
-
-        vm.expectRevert(
-            PausableImmutableOraclePool
-                .PausableImmutableOraclePoolImmutable
-                .selector
-        );
-        oraclePool.setFee(newFee);
-
-        assertEq(oraclePool.getFee(), fee, "test_Fuzz_Revert_SetFee::2");
-    }
 
     function test_Fuzz_Deposit(
         uint256 price,
@@ -503,7 +471,7 @@ contract PausableImmutableoraclePoolTest is Test {
     function test_Fuzz_Pull(uint256 amount) public {
         amount = bound(amount, 0.01e18, 100e18);
 
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
@@ -584,7 +552,7 @@ contract PausableImmutableoraclePoolTest is Test {
     }
 
     function test_Sweep() public {
-        oraclePool = new PausableImmutableOraclePool(
+        oraclePool = new PausableOraclePool(
             sender,
             address(tokenIn),
             address(tokenOut),
