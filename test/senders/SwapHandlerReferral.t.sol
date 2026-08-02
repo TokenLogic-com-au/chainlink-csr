@@ -11,6 +11,7 @@ import "../../contracts/utils/PriceOracle.sol";
 import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/ccip/CCIPBaseUpgradeable.sol";
+import "../../contracts/libraries/ExtraArgsCodec.sol";
 import "../mocks/MockERC20.sol";
 import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
@@ -43,17 +44,22 @@ contract SwapHandlerReferralTest is Test {
         gho = new MockERC20("GHO", "GHO", 18);
         ccipRouter = new MockCCIPRouter(address(gho), GHO_FEE, NATIVE_FEE);
         dataFeed = new MockDataFeed(18);
+        // sGHO/GHO ratio starts at 1.0 and grows with staking yield.
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
         priceOracle = new PriceOracle(address(dataFeed), false, 1 hours);
 
         token = new MockERC20("Token", "TK", 18);
 
+        // Cap parameters: 20% / yr (realistic DeFi peak rate), so after 6 years the linear cap
+        // accumulates to ~2.2e18 — just above the fuzz price ceiling of 2e18 below.
         oraclePool = new OraclePool(
             _predictContractAddress(1),
             address(gho),
             address(token),
             address(priceOracle),
             500,
-            address(this)
+            address(this),
+            2000
         );
         sender = new SwapHandlerReferral(
             address(token),
@@ -63,6 +69,8 @@ contract SwapHandlerReferralTest is Test {
             vault,
             address(this)
         );
+        vm.warp(block.timestamp + 6 * 365 days);
+        dataFeed.set(int256(1e18), 1, block.timestamp, block.timestamp, 1);
     }
 
     function test_Constructor() public {
@@ -176,12 +184,14 @@ contract SwapHandlerReferralTest is Test {
     }
 
     function test_Fuzz_DepositReferral(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
-        uint256 feeAmountIn = (amountIn * oraclePool.getFee()) / PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmountIn = (amountIn * oraclePool.getFee() + PRECISION - 1) /
+            PRECISION;
         uint256 amountOut = ((amountIn - feeAmountIn) * 1e18) / price;
 
         token.mint(address(oraclePool), amountOut);
@@ -267,14 +277,17 @@ contract SwapHandlerReferralTest is Test {
     }
 
     function test_Fuzz_Redeem(uint256 price, uint256 amountIn) public {
-        price = bound(price, 0.001e18, 100e18);
+        price = bound(price, 1e18, 2e18);
         amountIn = bound(amountIn, 1, 100e18);
 
         dataFeed.set(int256(price), 1, block.timestamp, block.timestamp, 1);
 
         uint256 exchangeRateAmount = (amountIn * price) / 1e18;
-        uint256 feeAmount = (exchangeRateAmount * oraclePool.getFee()) /
-            PRECISION;
+        // Fee rounds up (in the pool's favour), matching OraclePool.
+        uint256 feeAmount = (exchangeRateAmount *
+            oraclePool.getFee() +
+            PRECISION -
+            1) / PRECISION;
         uint256 amountOut = exchangeRateAmount - feeAmount;
 
         gho.mint(address(oraclePool), amountOut);
@@ -347,11 +360,7 @@ contract SwapHandlerReferralTest is Test {
 
         amountToSync = bound(amountToSync, 1, 100e18);
         gasLimitOtoD = uint32(
-            bound(
-                gasLimitOtoD,
-                sender.MIN_PROCESS_MESSAGE_GAS(),
-                type(uint32).max
-            )
+            bound(gasLimitOtoD, sender.minProcessMessageGas(), type(uint32).max)
         );
 
         sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
@@ -383,7 +392,7 @@ contract SwapHandlerReferralTest is Test {
                 vault,
                 bytes32(uint256(uint160(address(oraclePool)))),
                 uint256(0),
-                true
+                uint256(1)
             ),
             tokenAmounts: tokenAmounts,
             feeToken: payInGhoOtoD ? address(gho) : address(0),
@@ -486,12 +495,39 @@ contract SwapHandlerReferralTest is Test {
         sender.sync(address(gho), amountToSync, 0, new bytes(0), new bytes(0));
 
         vm.expectRevert(ISwapHandler.SwapHandlerInsufficientGas.selector);
-        sender.sync(
+        sender.sync(address(gho), amountToSync, 0, new bytes(21), new bytes(0));
+    }
+
+    function test_Revert_Sync_InsufficientGasInExtraArgs() public {
+        bytes memory receiver = new bytes(1);
+        uint256 amountToSync = 1e18;
+
+        sender.setReceiver(ETHEREUM_CHAIN_SELECTOR, receiver);
+        sender.grantRole(sender.SYNC_ROLE(), address(this));
+        gho.mint(address(oraclePool), amountToSync);
+
+        bytes memory feeData = FeeCodec.encodeCCIP(
+            NATIVE_FEE,
+            false,
+            sender.minProcessMessageGas()
+        );
+
+        ExtraArgsCodec.GenericExtraArgsV3 memory args;
+        args.gasLimit = sender.minProcessMessageGas() - 1;
+        bytes memory extraArgs = abi.encodeWithSelector(
+            ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+            args
+        );
+
+        vm.expectRevert(
+            ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
+        );
+        sender.sync{value: NATIVE_FEE}(
             address(gho),
             amountToSync,
             0,
-            new bytes(21),
-            new bytes(0)
+            feeData,
+            extraArgs
         );
     }
 

@@ -21,16 +21,15 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
     error PausableImmutableOraclePoolInvalidParameters();
 
     /**
-     * @dev Sets the immutable values for {SENDER}, {GHO}, {SGHO} and the initial values for the oracle, the swap fee and the owner.
-     *
-     * Unlike the base {OraclePool}, the oracle must not be the zero address since it cannot be changed after deployment.
-     *
-     * @param sender The only account allowed to call the swap and pull functions.
-     * @param gho The address of the `GHO` token to be swapped.
-     * @param sgho The address of the `sGHO` token to be swapped.
-     * @param oracle The address of the oracle contract.
+     * @dev Sets the immutable values for {SENDER}, {GHO}, {SGHO} and the initial values for the oracle, the swap fee,
+     * the owner, and the maximum yearly growth of the price cap.
+     * @param sender The address allowed to call the swap and pull functions.
+     * @param gho The address of the GHO token.
+     * @param sgho The address of the sGHO token.
+     * @param oracle The address of the oracle contract. Must be non-zero.
      * @param fee The fee to be applied to each swap (in 1e18 scale).
      * @param initialOwner The address of the initial owner.
+     * @param maxYearlyGrowthBps The maximum yearly growth of the price cap (in basis points).
      */
     constructor(
         address sender,
@@ -38,8 +37,19 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
         address sgho,
         address oracle,
         uint96 fee,
-        address initialOwner
-    ) OraclePool(sender, gho, sgho, oracle, fee, initialOwner) {
+        address initialOwner,
+        uint16 maxYearlyGrowthBps
+    )
+        OraclePool(
+            sender,
+            gho,
+            sgho,
+            oracle,
+            fee,
+            initialOwner,
+            maxYearlyGrowthBps
+        )
+    {
         require(
             oracle != address(0),
             PausableImmutableOraclePoolInvalidParameters()
@@ -101,6 +111,20 @@ contract PausableImmutableOraclePool is OraclePool, Pausable {
     /// @inheritdoc IOraclePool
     /// @dev Always reverts: the fee is immutable in this contract.
     function setFee(uint96) public pure override {
+        revert PausableImmutableOraclePoolImmutable();
+    }
+
+    /**
+     * @dev Prevents the price-cap parameters from being changed.
+     */
+    function setCapParameters(uint256, uint48, uint16) public pure override {
+        revert PausableImmutableOraclePoolImmutable();
+    }
+
+    /**
+     * @dev Prevents the maximum yearly growth bps from being changed.
+     */
+    function setMaxYearlyGrowthBps(uint16) public pure override {
         revert PausableImmutableOraclePoolImmutable();
     }
 }

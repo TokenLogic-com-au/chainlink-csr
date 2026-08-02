@@ -19,8 +19,16 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
     /// @dev One or more of the constructor parameters is invalid.
     error SwapHandlerInvalidParameters();
 
-    /// @dev The gas limit encoded in the fee data is below `MIN_PROCESS_MESSAGE_GAS`.
+    /// @dev The gas limit encoded in the fee data is below `minProcessMessageGas`.
     error SwapHandlerInsufficientGas();
+
+    /**
+     * Emitted when the oracle pool is refunded from the SwapHandler.
+     * @param oraclePool The address of oracle pool where the token was transferred.
+     * @param token The address of the token that was transferred.
+     * @param amount The amount of token that was transferred.
+     */
+    event OraclePoolRefunded(address oraclePool, address token, uint256 amount);
 
     /**
      * Emitted when the oracle pool is updated.
@@ -71,6 +79,16 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
         bytes32 messageId,
         address token,
         uint256 amount
+    );
+
+    /**
+     * Emitted when the local refund address is updated.
+     * @param oldRefundAddress The address of the previous local refund address.
+     * @param newRefundAddress The address of the new local refund address.
+     */
+    event LocalRefundAddressSet(
+        address oldRefundAddress,
+        address newRefundAddress
     );
 
     /**
@@ -134,7 +152,7 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
      * - `amount` must be greater than 0.
      * - `token` must be either `GHO` or `SGHO`.
      * - The oracle pool must be set.
-     * - The gas limit encoded in `feeData` must be at least `MIN_PROCESS_MESSAGE_GAS`.
+     * - The gas limit encoded in `feeData` must be at least `minProcessMessageGas`.
      *
      * Emits a {Sync} event.
      *
@@ -152,6 +170,25 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
         bytes calldata feeData,
         bytes calldata extraArgs
     ) external payable returns (bytes32);
+
+    /**
+     * @dev Reimburses the oracle pool after a failed L2 <> L1 sync of `GHO` or `SGHO`.
+     * The initiator of the {sync} is the account refunded on failure, which is this contract, so the
+     * tokens must be manually returned to the oracle pool.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     * - `amount` must be greater than 0.
+     * - `token` must be either `GHO` or `SGHO`.
+     * - The oracle pool must be set.
+     *
+     * Emits an {OraclePoolRefunded} event.
+     *
+     * @param token The address of the token to be transferred (`GHO` or `SGHO`).
+     * @param amount The amount of `token` to be transferred.
+     */
+    function refundOraclePool(address token, uint256 amount) external;
 
     /**
      * @dev Sets the address of the oracle pool.
@@ -183,6 +220,20 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
     function setVault(address vault) external;
 
     /**
+     * @dev Sets the local refund address, i.e. the account credited on the destination chain when a
+     * CCIP message sent by this contract fails and its tokens are returned.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     *
+     * Emits a {LocalRefundAddressSet} event.
+     *
+     * @param refundAddress The address of the new local refund address.
+     */
+    function setLocalRefundAddress(address refundAddress) external;
+
+    /**
      * @notice Returns the address of the `GHO` token on the deployed network.
      */
     function GHO() external view returns (address);
@@ -196,11 +247,6 @@ interface ISwapHandler is ICCIPTrustedSenderUpgradeable {
      * @notice Returns the role required to call {sync}.
      */
     function SYNC_ROLE() external view returns (bytes32);
-
-    /**
-     * @notice Returns the minimum gas required to process the CCIP message on the destination chain.
-     */
-    function MIN_PROCESS_MESSAGE_GAS() external view returns (uint32);
 
     /**
      * @notice Returns the address of the oracle pool.

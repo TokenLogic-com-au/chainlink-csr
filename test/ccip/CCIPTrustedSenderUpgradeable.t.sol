@@ -365,7 +365,7 @@ contract MockCCIPTrustedSender is CCIPTrustedSenderUpgradeable {
                 maxFee,
                 gasLimit,
                 data,
-                new bytes(0)
+                msg.data[0:0]
             );
     }
 

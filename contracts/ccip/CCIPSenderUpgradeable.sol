@@ -5,6 +5,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
+import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {CCIPBaseUpgradeable} from "./CCIPBaseUpgradeable.sol";
 import {ICCIPSenderUpgradeable} from "../interfaces/ICCIPSenderUpgradeable.sol";
 
@@ -22,6 +23,11 @@ abstract contract CCIPSenderUpgradeable is
 
     /// @inheritdoc ICCIPSenderUpgradeable
     address public immutable override GHO_TOKEN;
+
+    /// @dev The minimum gas that must be encoded in `extraArgs` (or in the fallback `gasLimit`
+    /// passed by the derived sender) for the destination chain to execute the message. Defaults to
+    /// 400,000. Admin-tunable via {setMinProcessMessageGas} so it can track destination-chain changes.
+    uint32 public minProcessMessageGas = 400_000;
 
     /**
      * @dev Sets the immutable value for the {GHO_TOKEN} address.
@@ -42,6 +48,28 @@ abstract contract CCIPSenderUpgradeable is
      * @dev Unchained initializer for the {CCIPSenderUpgradeable} contract.
      */
     function __CCIPSender_init_unchained() internal onlyInitializing {}
+
+    /**
+     * @dev Updates the minimum gas required to process the message on the destination chain.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     * - `gasLimit` must be non-zero — a zero value would disable the guard and let low-gas messages through.
+     *
+     * Emits a {MinProcessMessageGasSet} event.
+     * @param gasLimit The new minimum gas limit.
+     */
+    function setMinProcessMessageGas(
+        uint32 gasLimit
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(gasLimit > 0, CCIPSenderInvalidGasLimit());
+
+        uint32 oldGasLimit = minProcessMessageGas;
+        minProcessMessageGas = gasLimit;
+
+        emit MinProcessMessageGasSet(oldGasLimit, gasLimit);
+    }
 
     /**
      * @dev Sends a message to the CCIP router.
@@ -78,7 +106,7 @@ abstract contract CCIPSenderUpgradeable is
         uint256 maxFee,
         uint256 gasLimit,
         bytes memory data,
-        bytes memory extraArgs
+        bytes calldata extraArgs
     ) internal virtual returns (bytes32) {
         require(receiver.length > 0, CCIPSenderEmptyReceiver());
 
@@ -95,6 +123,24 @@ abstract contract CCIPSenderUpgradeable is
 
                 IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
             }
+        }
+
+        if (extraArgs.length > 0) {
+            bytes4 tag = bytes4(extraArgs);
+            require(
+                tag == ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+                CCIPSenderInvalidExtraArgsTag(tag)
+            );
+
+            ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
+                extraArgs[4:],
+                (ExtraArgsCodec.GenericExtraArgsV3)
+            );
+
+            require(
+                args.gasLimit >= minProcessMessageGas,
+                CCIPSenderInsufficientGas()
+            );
         }
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({

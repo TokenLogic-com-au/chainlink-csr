@@ -39,11 +39,13 @@ The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by t
 
 [`contracts/libraries/FeeCodec.sol`](contracts/libraries/FeeCodec.sol): Encode/decode helpers for the bridge fee data (e.g. `encodeCCIP`, `encodeArbitrumL1toL2`, `encodeOptimismL1toL2`, `encodeBaseL1toL2`, `encodeFraxFerryL1toL2`, `encodeLineaL1toL2`).
 
+[`contracts/libraries/ExtraArgsCodec.sol`](contracts/libraries/ExtraArgsCodec.sol): Type definitions for the CCIP `GenericExtraArgsV3` extra-args blob. A `sync` caller may supply one to control CCIP delivery (gas limit, finality, verifiers, executor); the sender decodes it only to enforce the `minProcessMessageGas` floor and otherwise forwards it to the router untouched.
+
 [`contracts/libraries/TokenHelper.sol`](contracts/libraries/TokenHelper.sol): Helpers for transferring ERC20 and native tokens and refunding excess native value.
 
 ## Roles and access control
 
-- **`SwapHandler` `DEFAULT_ADMIN_ROLE`** — set at initialization (`initialAdmin`). Can call `setOraclePool` and `setVault`, and manage roles.
+- **`SwapHandler` `DEFAULT_ADMIN_ROLE`** — set at initialization (`initialAdmin`). Can call `setOraclePool`, `setVault`, `setLocalRefundAddress`, `refundOraclePool`, and `setMinProcessMessageGas`, and manage roles.
 - **`SwapHandler` `SYNC_ROLE`** — may call `sync`. Grant this to the operator or automation account that rebalances the pool.
 - **`OraclePool` `SENDER`** — the `SwapHandler`; the only account allowed to call `deposit`, `redeem`, and `pull` on the pool.
 - **`OraclePool` owner** — can `sweep` tokens and (on the mutable pool) update the oracle and fee.
@@ -66,6 +68,7 @@ The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by t
 - `oracle`: The exchange-rate oracle (a `PriceOracle`/`PriceConverterOracle`). For `PausableImmutableOraclePool` this must be non-zero.
 - `fee`: The swap fee applied to each swap, in 1e18 scale (e.g. `1e16` = 1%). Must be `<= 1e18`.
 - `initialOwner`: The pool owner.
+- `maxYearlyGrowthBps`: The maximum yearly growth allowed for the pool's price cap, in basis points (e.g. `500` = 5% / yr). The cap is an upper bound on the oracle reading used for swaps — `cap = snapshot + perSecondGrowth * elapsed` — and protects against a glitched or manipulated oracle spike. Set it with some headroom above `sGHO`'s expected accrual rate. The initial snapshot is auto-seeded from the oracle reading at deploy.
 
 ### `PriceOracle`
 
@@ -79,7 +82,9 @@ The CCIP destination is fixed to Ethereum mainnet, and the CCIP fee is paid by t
 
 - `maxFee`: The maximum CCIP fee the caller is willing to pay. Estimate it with `getFee()` on the CCIP router and add a small buffer; any excess is refunded.
 - `payInLink` / fee token: Whether the CCIP fee is paid in the GHO fee token or native token.
-- `gasLimit`: The gas for processing the message on the destination chain. Must be at least `MIN_PROCESS_MESSAGE_GAS` (75,000).
+- `gasLimit`: The gas for processing the message on the destination chain. Must be at least `minProcessMessageGas`, which defaults to `400_000` and is admin-tunable via `setMinProcessMessageGas(uint32)`.
+
+A `sync` caller may also supply an `extraArgs` blob to control CCIP delivery directly. It must be an ABI-encoded [`GenericExtraArgsV3`](contracts/libraries/ExtraArgsCodec.sol) prefixed with the `GENERIC_EXTRA_ARGS_V3_TAG` tag; any other tag reverts with `CCIPSenderInvalidExtraArgsTag`. The `gasLimit` it embeds is held to the same `minProcessMessageGas` floor as the one in `feeData`, and the rest of the blob is forwarded to the router untouched. Passing empty `extraArgs` falls back to an `EVMExtraArgsV1` built from the fee data's `gasLimit`.
 
 Front-ends and operators should use the same encoding (e.g. via JS) when constructing `feeData`.
 
@@ -92,6 +97,28 @@ Keep the `SYNC_ROLE` account funded with enough of the CCIP fee token (GHO or na
 
 **How is `sync` triggered?**
 By any account holding the `SYNC_ROLE`, either manually or via an off-chain automation that holds the role. (This repo no longer ships an on-chain automation contract; automation, if used, lives off-chain or in a separate component.)
+
+**How does the `OraclePool`'s price cap work, and what do I need to do to maintain it?**
+The [`OraclePool`](contracts/utils/OraclePool.sol) clips the oracle reading it accepts to `snapshot + (perSecondGrowth * elapsed)` — a linear upper bound growing from a stored `(snapshotPrice, snapshotTimestamp)` reference at the rate of `maxYearlyGrowthBps`. A glitched or manipulated spike above the cap is silently clipped to the cap value, so it cannot drain the pool. Independently, the pool enforces a monotonic invariant: a reading below the previously accepted price reverts with `OraclePoolInvalidPrice`.
+
+Routine maintenance is owner-gated:
+
+- **Adjust the growth rate** — `setMaxYearlyGrowthBps(uint16)` when `sGHO`'s accrual rate changes materially. The snapshot is not touched. Lowering it far enough that the resulting cap falls below the current accepted price will brick swaps until a re-snapshot.
+- **Re-snapshot** — `setCapParameters(snapshotPrice, snapshotTimestamp, maxYearlyGrowthBps)` when the snapshot goes stale, or to recover after an oracle incident. `snapshotTimestamp` must be strictly newer than the stored one, at least 1 day old, and no more than 180 days old. This also resets the last accepted price, so a stuck-high reading from a prior spike stops blocking swaps.
+- **Replace the oracle** — `setOracle(newOracle)` is safe for maintenance. The accrued cap value carries across the replacement, so the growth budget already earned is not lost; any reading from the new oracle above the inherited cap is clipped until the cap re-accrues.
+
+If the pool starts reverting with `OraclePoolInvalidPrice` after an oracle incident, the recovery path is: establish the true price at a timestamp inside the 180-day window → call `setCapParameters` with that snapshot → swaps resume.
+
+**How do I raise or lower the minimum gas a `sync` message may encode?**
+Two checks share one floor, `minProcessMessageGas` (default `400_000`), but report different errors:
+
+- The `gasLimit` decoded from `feeData` is checked by the `SwapHandler` and reverts with `SwapHandlerInsufficientGas`.
+- The `gasLimit` embedded in a supplied `GenericExtraArgsV3` blob is checked by [`CCIPSenderUpgradeable`](contracts/ccip/CCIPSenderUpgradeable.sol) and reverts with `CCIPSenderInsufficientGas`.
+
+If the destination chain's real per-message gas usage changes (a chain upgrade, a heavier receiver), an admin retunes the floor with `setMinProcessMessageGas(uint32)`. The caller must hold `DEFAULT_ADMIN_ROLE`, and the value must be non-zero — passing `0` reverts with `CCIPSenderInvalidGasLimit`, since a zero floor would disable the guard entirely. Emits `MinProcessMessageGasSet(oldGasLimit, newGasLimit)`.
+
+**How do I return tokens to the pool after a failed `sync`?**
+When a CCIP `sync` fails, the refund goes to the message's initiator — this contract — not to the pool. An account with `DEFAULT_ADMIN_ROLE` calls `refundOraclePool(token, amount)` to move the stranded `GHO` or `sGHO` back, which emits `OraclePoolRefunded`. The destination-side refund recipient is configured separately via `setLocalRefundAddress`.
 
 ### Front-end operators
 
@@ -116,7 +143,7 @@ This repository uses **yarn** for package management and **Foundry** for smart c
 
 ### Off-chain library
 
-For TypeScript utilities and off-chain tooling, see the **[Offchain README](offchain/README.md)**.
+The TypeScript utilities and off-chain tooling live in a separate repository and are no longer part of this repo.
 
 ### Environment setup
 

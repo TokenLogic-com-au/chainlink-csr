@@ -24,9 +24,6 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     using SafeERC20 for IERC20;
 
     /// @inheritdoc ISwapHandler
-    uint32 public constant MIN_PROCESS_MESSAGE_GAS = 75_000;
-
-    /// @inheritdoc ISwapHandler
     bytes32 public constant SYNC_ROLE = keccak256("SYNC_ROLE");
 
     /// @dev The CCIP chain selector of the Ethereum mainnet destination chain.
@@ -46,6 +43,7 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     struct SwapHandlerStorage {
         address oraclePool;
         address vault;
+        address localRefundAddress;
     }
 
     /// @dev The ERC-7201 storage location for the {SwapHandlerStorage} struct.
@@ -119,7 +117,7 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     function deposit(
         uint256 exactAmountIn,
         uint256 minAmountOut
-    ) public virtual returns (uint256) {
+    ) public returns (uint256) {
         require(exactAmountIn > 0, SwapHandlerZeroAmount());
 
         address oraclePool = _getSwapHandlerStorage().oraclePool;
@@ -143,7 +141,7 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     function redeem(
         uint256 amount,
         uint256 minAmountOut
-    ) public virtual returns (uint256) {
+    ) public returns (uint256) {
         require(amount > 0, SwapHandlerZeroAmount());
 
         address oraclePool = _getSwapHandlerStorage().oraclePool;
@@ -170,7 +168,7 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
         uint256 minAmountOut,
         bytes calldata feeData,
         bytes calldata extraArgs
-    ) external payable virtual onlyRole(SYNC_ROLE) returns (bytes32) {
+    ) external payable onlyRole(SYNC_ROLE) returns (bytes32) {
         require(amount > 0, SwapHandlerZeroAmount());
         require(token == GHO || token == SGHO, SwapHandlerInvalidToken());
 
@@ -203,15 +201,38 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
     }
 
     /// @inheritdoc ISwapHandler
+    function refundOraclePool(
+        address token,
+        uint256 amount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(amount > 0, SwapHandlerZeroAmount());
+        require(token == GHO || token == SGHO, SwapHandlerInvalidToken());
+
+        address oraclePool = _getSwapHandlerStorage().oraclePool;
+        require(oraclePool != address(0), SwapHandlerOraclePoolNotSet());
+
+        IERC20(token).safeTransfer(oraclePool, amount);
+
+        emit OraclePoolRefunded(oraclePool, token, amount);
+    }
+
+    /// @inheritdoc ISwapHandler
     function setOraclePool(
         address oraclePool
-    ) public override onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOraclePool(oraclePool);
     }
 
     /// @inheritdoc ISwapHandler
     function setVault(address vault) public onlyRole(DEFAULT_ADMIN_ROLE) {
         _setVault(vault);
+    }
+
+    /// @inheritdoc ISwapHandler
+    function setLocalRefundAddress(
+        address refundAddress
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setLocalRefundAddress(refundAddress);
     }
 
     /// @inheritdoc ISwapHandler
@@ -226,7 +247,9 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
 
     /**
      * @dev Builds the CCIP message for a sync and sends it to the destination chain via the CCIP router.
-     * The gas limit encoded in `feeData` must be at least {MIN_PROCESS_MESSAGE_GAS}.
+     * The gas limit encoded in `feeData` must be at least {minProcessMessageGas}, otherwise the call reverts
+     * with `SwapHandlerInsufficientGas`. The gas limit embedded in `extraArgs`, when one is supplied, is
+     * checked separately by `CCIPSenderUpgradeable` against the same floor.
      * @param destChainSelector The CCIP selector of the destination chain.
      * @param token The address of the token to be sent (`GHO` or `SGHO`).
      * @param amount The amount of `token` to be sent.
@@ -253,17 +276,14 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
             $.vault,
             bytes32(uint256(uint160($.oraclePool))),
             minimumAmountOut,
-            true
+            _packDeliveryAndRefund(true)
         );
 
         (uint256 maxFee, bool payInGho, uint256 gasLimit) = FeeCodec.decodeCCIP(
             feeData
         );
 
-        require(
-            gasLimit >= MIN_PROCESS_MESSAGE_GAS,
-            SwapHandlerInsufficientGas()
-        );
+        require(gasLimit >= minProcessMessageGas, SwapHandlerInsufficientGas());
 
         return
             _ccipSend(
@@ -275,6 +295,20 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
                 data,
                 extraArgs
             );
+    }
+
+    /**
+     * @dev Packs a local refund address (address(0) is non-returnable locally) with boolean on whether
+     * to return to source chain or not. In case of a misconfiguration, could help to have a local (destination) address
+     * for refunds instead of returning to source chain.
+     * @param returnToSourceChain Whether to return failed messages to source chain
+     */
+    function _packDeliveryAndRefund(
+        bool returnToSourceChain
+    ) internal view returns (uint256) {
+        return
+            (uint256(uint160(_getSwapHandlerStorage().localRefundAddress)) <<
+                1) | (returnToSourceChain ? 1 : 0);
     }
 
     /**
@@ -318,5 +352,19 @@ contract SwapHandler is CCIPTrustedSenderUpgradeable, ISwapHandler {
         SwapHandlerStorage storage $ = _getSwapHandlerStorage();
         $.vault = vault;
         emit VaultSet(vault);
+    }
+
+    /**
+     * @dev Sets the local refund address of the destination chain.
+     *
+     * Emits a {LocalRefundAddressSet} event.
+     */
+    function _setLocalRefundAddress(address refundAddress) internal {
+        SwapHandlerStorage storage $ = _getSwapHandlerStorage();
+        address oldRefundAddress = $.localRefundAddress;
+
+        $.localRefundAddress = refundAddress;
+
+        emit LocalRefundAddressSet(oldRefundAddress, refundAddress);
     }
 }
