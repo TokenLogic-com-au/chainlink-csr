@@ -38,6 +38,10 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
         address token,
         uint256 amount
     );
+    event LocalRefundAddressSet(
+        address oldRefundAddress,
+        address newRefundAddress
+    );
     event VaultSet(address vault);
 
     function deposit(
@@ -80,6 +84,8 @@ interface ICustomSender is ICCIPTrustedSenderUpgradeable {
     function setOraclePool(address oraclePool) external;
 
     function setVault(address vault) external;
+
+    function setLocalRefundAddress(address refundAddress) external;
 
     function GHO() external view returns (address);
 
