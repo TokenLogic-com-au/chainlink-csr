@@ -10,14 +10,22 @@ import {ICCIPBaseUpgradeable} from "../interfaces/ICCIPBaseUpgradeable.sol";
  * @dev The base contract for all CCIP contracts.
  */
 abstract contract CCIPBaseUpgradeable is AccessControlUpgradeable, ICCIPBaseUpgradeable {
+    /// @inheritdoc ICCIPBaseUpgradeable
     address public immutable override CCIP_ROUTER;
 
+    /**
+     * @dev Initializes the {CCIPBaseUpgradeable} contract. Reserved for derived contracts to chain initialization.
+     */
     function __CCIPBase_init() internal onlyInitializing {}
 
+    /**
+     * @dev Unchained initializer for the {CCIPBaseUpgradeable} contract.
+     */
     function __CCIPBase_init_unchained() internal onlyInitializing {}
 
     /**
-     * @dev Sets the immutable values for the {CCIP_ROUTER} address.
+     * @dev Sets the immutable value for the {CCIP_ROUTER} address.
+     * @param ccipRouter The address of the CCIP router.
      */
     constructor(address ccipRouter) {
         if (ccipRouter == address(0)) revert CCIPBaseInvalidParameters();

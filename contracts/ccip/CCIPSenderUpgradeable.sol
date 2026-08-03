@@ -5,6 +5,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
+import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
 import {CCIPBaseUpgradeable} from "./CCIPBaseUpgradeable.sol";
 import {ICCIPSenderUpgradeable} from "../interfaces/ICCIPSenderUpgradeable.sol";
 
@@ -14,83 +15,173 @@ import {ICCIPSenderUpgradeable} from "../interfaces/ICCIPSenderUpgradeable.sol";
  * It provides the ability to send messages to the CCIP router using the `ccipSend` function.
  * Each message can contain zero, one, or multiple (token, amount) pairs.
  */
-abstract contract CCIPSenderUpgradeable is CCIPBaseUpgradeable, ICCIPSenderUpgradeable {
+abstract contract CCIPSenderUpgradeable is
+    CCIPBaseUpgradeable,
+    ICCIPSenderUpgradeable
+{
     using SafeERC20 for IERC20;
 
-    address public immutable override LINK_TOKEN;
+    /// @inheritdoc ICCIPSenderUpgradeable
+    address public immutable override GHO_TOKEN;
+
+    /// @dev The minimum gas that must be encoded in `extraArgs` (or in the fallback `gasLimit`
+    /// passed by the derived sender) for the destination chain to execute the message. Defaults to
+    /// 400,000. Admin-tunable via {setMinProcessMessageGas} so it can track destination-chain changes.
+    uint32 public minProcessMessageGas = 400_000;
 
     /**
-     * @dev Sets the immutable value for {LINK_TOKEN}.
+     * @dev Sets the immutable value for the {GHO_TOKEN} address.
+     * @param ghoToken The address of the GHO token used to pay CCIP fees.
      */
-    constructor(address linkToken) {
-        if (linkToken == address(0)) revert CCIPSenderInvalidParameters();
+    constructor(address ghoToken) {
+        require(ghoToken != address(0), CCIPSenderInvalidParameters());
 
-        LINK_TOKEN = linkToken;
+        GHO_TOKEN = ghoToken;
     }
 
+    /**
+     * @dev Initializes the {CCIPSenderUpgradeable} contract. Reserved for derived contracts to chain initialization.
+     */
     function __CCIPSender_init() internal onlyInitializing {}
 
+    /**
+     * @dev Unchained initializer for the {CCIPSenderUpgradeable} contract.
+     */
     function __CCIPSender_init_unchained() internal onlyInitializing {}
+
+    /**
+     * @dev Updates the minimum gas required to process the message on the destination chain.
+     *
+     * Requirements:
+     *
+     * - `msg.sender` must have the `DEFAULT_ADMIN_ROLE`.
+     * - `gasLimit` must be non-zero — a zero value would disable the guard and let low-gas messages through.
+     *
+     * Emits a {MinProcessMessageGasSet} event.
+     * @param gasLimit The new minimum gas limit.
+     */
+    function setMinProcessMessageGas(
+        uint32 gasLimit
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(gasLimit > 0, CCIPSenderInvalidGasLimit());
+
+        uint32 oldGasLimit = minProcessMessageGas;
+        minProcessMessageGas = gasLimit;
+
+        emit MinProcessMessageGasSet(oldGasLimit, gasLimit);
+    }
 
     /**
      * @dev Sends a message to the CCIP router.
      * The message can contain zero, one, or multiple (token, amount) pairs.
      * This function will calculate the exact fee required for the message and forward it to the router.
-     * The fee can be paid in LINK or native token.
+     * The fee can be paid in GHO or native token.
      *
      * Requirements:
      *
-     * - `receiver` must be a non-empty array.
+     * - `receiver` must not be empty.
      * - `maxFee` must be greater than or equal to the fee for the message.
-     * - if `payInLink` is `true`, `msg.sender` must have approved the contract to transfer `maxFee` of LINK. Else,
-     *   `msg.value` must be greater than or equal to the fee for the message.
      * - each token in `tokenAmounts` must have been transferred to the contract.
-     * - payer must have approved the contract to transfer the fee in LINK if `payInLink` is `true`, unless `payer` is
-     *   the contract itself, in which case the contract must have enough LINK.
+     * - if `payInGho` is `true`: `payer` must have approved this contract to transfer the fee in GHO, unless
+     *   `payer` is the contract itself, in which case the contract must hold at least the fee in GHO.
+     * - if `payInGho` is `false`: `msg.value` must be greater than or equal to the fee.
+     *
+     * @param destChainSelector The CCIP selector of the destination chain.
+     * @param payer The account paying the CCIP fee.
+     * @param receiver The encoded receiver address on the destination chain.
+     * @param tokenAmounts The list of (token, amount) pairs to send with the message.
+     * @param payInGho Whether the fee is paid in GHO (`true`) or native token (`false`).
+     * @param maxFee The maximum fee allowed by the caller.
+     * @param gasLimit The gas limit for executing the message on the destination chain.
+     * @param data The arbitrary data payload to send with the message.
+     * @param extraArgs The encoded extra arguments for the message, or empty to use the default gas limit args.
+     * @return The CCIP message id of the sent message.
      */
     function _ccipSendTo(
         uint64 destChainSelector,
         address payer,
         bytes memory receiver,
         Client.EVMTokenAmount[] memory tokenAmounts,
-        bool payInLink,
+        bool payInGho,
         uint256 maxFee,
         uint256 gasLimit,
-        bytes memory data
+        bytes memory data,
+        bytes calldata extraArgs
     ) internal virtual returns (bytes32) {
-        if (receiver.length == 0) revert CCIPSenderEmptyReceiver();
+        require(receiver.length > 0, CCIPSenderEmptyReceiver());
 
-        uint256 length = tokenAmounts.length;
-        for (uint256 i = 0; i < length; ++i) {
-            address token = tokenAmounts[i].token;
-            uint256 amount = tokenAmounts[i].amount;
+        {
+            uint256 length = tokenAmounts.length;
+            for (uint256 i = 0; i < length; ++i) {
+                address token = tokenAmounts[i].token;
+                uint256 amount = tokenAmounts[i].amount;
 
-            if (amount == 0 || token == address(0)) revert CCIPSenderInvalidTokenAmount();
+                require(
+                    amount > 0 && token != address(0),
+                    CCIPSenderInvalidTokenAmount()
+                );
 
-            IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
+                IERC20(token).safeIncreaseAllowance(CCIP_ROUTER, amount);
+            }
+        }
+
+        if (extraArgs.length > 0) {
+            bytes4 tag = bytes4(extraArgs);
+            require(
+                tag == ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
+                CCIPSenderInvalidExtraArgsTag(tag)
+            );
+
+            ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
+                extraArgs[4:],
+                (ExtraArgsCodec.GenericExtraArgsV3)
+            );
+
+            require(
+                args.gasLimit >= minProcessMessageGas,
+                CCIPSenderInsufficientGas()
+            );
         }
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: receiver,
             data: data,
             tokenAmounts: tokenAmounts,
-            feeToken: payInLink ? LINK_TOKEN : address(0),
-            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit}))
+            feeToken: payInGho ? GHO_TOKEN : address(0),
+            extraArgs: extraArgs.length > 0
+                ? extraArgs
+                : Client._argsToBytes(
+                    Client.EVMExtraArgsV1({gasLimit: gasLimit})
+                )
         });
 
-        uint256 fee = IRouterClient(CCIP_ROUTER).getFee(destChainSelector, message);
-        if (fee > maxFee) revert CCIPSenderExceedsMaxFee(fee, maxFee);
+        uint256 nativeFee = 0;
 
-        uint256 nativeFee;
-        if (payInLink) {
-            nativeFee = 0;
+        {
+            uint256 fee = IRouterClient(CCIP_ROUTER).getFee(
+                destChainSelector,
+                message
+            );
+            require(fee <= maxFee, CCIPSenderExceedsMaxFee(fee, maxFee));
 
-            if (payer != address(this)) IERC20(LINK_TOKEN).safeTransferFrom(payer, address(this), fee);
-            IERC20(LINK_TOKEN).safeIncreaseAllowance(CCIP_ROUTER, fee);
-        } else {
-            nativeFee = fee;
+            if (payInGho) {
+                if (payer != address(this)) {
+                    IERC20(GHO_TOKEN).safeTransferFrom(
+                        payer,
+                        address(this),
+                        fee
+                    );
+                }
+                IERC20(GHO_TOKEN).safeIncreaseAllowance(CCIP_ROUTER, fee);
+            } else {
+                nativeFee = fee;
+            }
         }
 
-        return IRouterClient(CCIP_ROUTER).ccipSend{value: nativeFee}(destChainSelector, message);
+        return
+            IRouterClient(CCIP_ROUTER).ccipSend{value: nativeFee}(
+                destChainSelector,
+                message
+            );
     }
 }
