@@ -6,6 +6,7 @@ import {IRouterClient} from "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/
 import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.sol";
 
 import {ExtraArgsCodec} from "../libraries/ExtraArgsCodec.sol";
+import {FinalityCodec} from "../libraries/FinalityCodec.sol";
 import {CCIPBaseUpgradeable} from "./CCIPBaseUpgradeable.sol";
 import {ICCIPSenderUpgradeable} from "../interfaces/ICCIPSenderUpgradeable.sol";
 
@@ -126,20 +127,16 @@ abstract contract CCIPSenderUpgradeable is
         }
 
         if (extraArgs.length > 0) {
-            bytes4 tag = bytes4(extraArgs);
-            require(
-                tag == ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
-                CCIPSenderInvalidExtraArgsTag(tag)
-            );
-
-            ExtraArgsCodec.GenericExtraArgsV3 memory args = abi.decode(
-                extraArgs[4:],
-                (ExtraArgsCodec.GenericExtraArgsV3)
-            );
+            ExtraArgsCodec.GenericExtraArgsV3 memory args = ExtraArgsCodec
+                ._decodeGenericExtraArgsV3(extraArgs);
 
             require(
                 args.gasLimit >= minProcessMessageGas,
                 CCIPSenderInsufficientGas()
+            );
+
+            FinalityCodec._validateRequestedFinality(
+                args.requestedFinalityConfig
             );
         }
 

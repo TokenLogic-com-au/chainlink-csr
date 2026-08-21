@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/libraries/ExtraArgsCodec.sol";
+import "../../contracts/libraries/FinalityCodec.sol";
 import "../Mocks/MockERC20.sol";
 import "../Mocks/MockCCIPRouter.sol";
 
@@ -260,9 +261,10 @@ contract CCIPSenderUpgradeableTest is Test {
     }
 
     function test_Revert_CCIPSend_InsufficientGasInExtraArgs() public {
-        ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
+        bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+            sender.minProcessMessageGas() - 1,
+            FinalityCodec.WAIT_FOR_FINALITY_FLAG
+        );
 
         vm.expectRevert(
             ICCIPSenderUpgradeable.CCIPSenderInsufficientGas.selector
@@ -280,9 +282,110 @@ contract CCIPSenderUpgradeableTest is Test {
     }
 
     function test_CCIPSend_SufficientGasInExtraArgs() public {
-        ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.minProcessMessageGas();
-        bytes memory extraArgs = abi.encodeWithSelector(ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG, args);
+        bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+            sender.minProcessMessageGas(),
+            FinalityCodec.WAIT_FOR_FINALITY_FLAG
+        );
+
+        sender.ccipSendTo{value: NATIVE_FEE}(
+            0,
+            new bytes(1),
+            new Client.EVMTokenAmount[](0),
+            false,
+            type(uint256).max,
+            0,
+            new bytes(0),
+            extraArgs
+        );
+    }
+
+    function test_CCIPSend_ValidFinalityConfigInExtraArgs() public {
+        bytes4[3] memory finalityConfigs = [
+            FinalityCodec.WAIT_FOR_FINALITY_FLAG,
+            FinalityCodec.WAIT_FOR_SAFE_FLAG,
+            FinalityCodec._encodeBlockDepth(12)
+        ];
+
+        for (uint256 i = 0; i < finalityConfigs.length; ++i) {
+            bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+                sender.minProcessMessageGas(),
+                finalityConfigs[i]
+            );
+
+            sender.ccipSendTo{value: NATIVE_FEE}(
+                0,
+                new bytes(1),
+                new Client.EVMTokenAmount[](0),
+                false,
+                type(uint256).max,
+                0,
+                new bytes(0),
+                extraArgs
+            );
+        }
+    }
+
+    function test_Revert_CCIPSend_InvalidFinalityConfigInExtraArgs() public {
+        bytes4[2] memory finalityConfigs = [
+            FinalityCodec._encodeBlockDepthAndSafeFlag(12),
+            bytes4(uint32(3 << 16))
+        ];
+
+        for (uint256 i = 0; i < finalityConfigs.length; ++i) {
+            bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+                sender.minProcessMessageGas(),
+                finalityConfigs[i]
+            );
+
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FinalityCodec
+                        .RequestedFinalityCanOnlyHaveOneMode
+                        .selector,
+                    finalityConfigs[i]
+                )
+            );
+            sender.ccipSendTo{value: NATIVE_FEE}(
+                0,
+                new bytes(1),
+                new Client.EVMTokenAmount[](0),
+                false,
+                type(uint256).max,
+                0,
+                new bytes(0),
+                extraArgs
+            );
+        }
+    }
+
+    function test_Fuzz_CCIPSend_FinalityConfigInExtraArgs(
+        bytes4 finalityConfig
+    ) public {
+        bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+            sender.minProcessMessageGas(),
+            finalityConfig
+        );
+
+        uint32 flags = uint32(finalityConfig) >> 16;
+        bool hasDepth = uint32(finalityConfig) & 0xFFFF != 0;
+        uint256 activeModes = hasDepth ? 1 : 0;
+        for (uint256 i = 0; i < 16; ++i) {
+            if (flags & (1 << i) != 0) ++activeModes;
+        }
+
+        if (
+            finalityConfig != FinalityCodec.WAIT_FOR_FINALITY_FLAG &&
+            activeModes != 1
+        ) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FinalityCodec
+                        .RequestedFinalityCanOnlyHaveOneMode
+                        .selector,
+                    finalityConfig
+                )
+            );
+        }
 
         sender.ccipSendTo{value: NATIVE_FEE}(
             0,
@@ -297,16 +400,19 @@ contract CCIPSenderUpgradeableTest is Test {
     }
 
     function test_Revert_CCIPSend_InvalidExtraArgsTag() public {
-        ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.minProcessMessageGas();
-
         // Encode with a wrong tag; every other byte matches a valid V3 blob.
         bytes4 wrongTag = 0xdeadbeef;
-        bytes memory extraArgs = abi.encodeWithSelector(wrongTag, args);
+        bytes memory extraArgs = abi.encodePacked(
+            wrongTag,
+            sender.minProcessMessageGas(),
+            FinalityCodec.WAIT_FOR_FINALITY_FLAG,
+            bytes7(0)
+        );
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
+                ExtraArgsCodec.InvalidExtraArgsTag.selector,
+                ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
                 wrongTag
             )
         );
@@ -323,14 +429,14 @@ contract CCIPSenderUpgradeableTest is Test {
     }
 
     function test_Revert_CCIPSend_TruncatedExtraArgsTag() public {
-        // extraArgs of length > 0 but < 4 — cast to bytes4 pads with zeros and mismatches the tag.
+        // extraArgs shorter than the static header is rejected on length, before the tag is read.
         bytes memory extraArgs = hex"a69dd4"; // 3 bytes, one short of the real tag.
-        bytes4 expected = bytes4(extraArgs);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                ICCIPSenderUpgradeable.CCIPSenderInvalidExtraArgsTag.selector,
-                expected
+                ExtraArgsCodec.InvalidDataLength.selector,
+                ExtraArgsCodec.EncodingErrorLocation.EXTRA_ARGS_STATIC_LENGTH_FIELDS,
+                extraArgs.length
             )
         );
         sender.ccipSendTo(

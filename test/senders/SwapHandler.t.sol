@@ -11,6 +11,7 @@ import "../../contracts/utils/OraclePool.sol";
 import "../../contracts/ccip/CCIPSenderUpgradeable.sol";
 import "../../contracts/ccip/CCIPBaseUpgradeable.sol";
 import "../../contracts/libraries/ExtraArgsCodec.sol";
+import "../../contracts/libraries/FinalityCodec.sol";
 import "../mocks/MockERC20.sol";
 import "../mocks/MockWNative.sol";
 import "../mocks/MockCCIPRouter.sol";
@@ -703,11 +704,9 @@ contract SwapHandlerTest is Test {
             sender.minProcessMessageGas()
         );
 
-        ExtraArgsCodec.GenericExtraArgsV3 memory args;
-        args.gasLimit = sender.minProcessMessageGas() - 1;
-        bytes memory extraArgs = abi.encodeWithSelector(
-            ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG,
-            args
+        bytes memory extraArgs = ExtraArgsCodec._getBasicEncodedExtraArgsV3(
+            sender.minProcessMessageGas() - 1,
+            FinalityCodec.WAIT_FOR_FINALITY_FLAG
         );
 
         vm.expectRevert(

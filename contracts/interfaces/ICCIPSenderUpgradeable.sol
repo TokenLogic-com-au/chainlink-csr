@@ -18,14 +18,11 @@ interface ICCIPSenderUpgradeable is ICCIPBaseUpgradeable {
     /// @dev The provided GHO token address is the zero address.
     error CCIPSenderInvalidParameters();
 
+    /// @dev The gas limit encoded in `extraArgs` is below `minProcessMessageGas`.
     error CCIPSenderInsufficientGas();
 
     /// @dev The gas limit passed to `setMinProcessMessageGas` is zero, which would disable the guard.
     error CCIPSenderInvalidGasLimit();
-
-    /// @dev The first 4 bytes of `extraArgs` do not match `ExtraArgsCodec.GENERIC_EXTRA_ARGS_V3_TAG`.
-    /// @param tag The rejected 4-byte tag actually found at the start of `extraArgs`.
-    error CCIPSenderInvalidExtraArgsTag(bytes4 tag);
 
     /**
      * Emitted when the minimum gas required to process the message on the destination chain is updated.
